@@ -143,16 +143,18 @@ class FudoAPIClient:
             print(f"Error en la petición a {url}: {str(e)}")
             raise
     
-    def get_sales(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict]:
+    def get_sales(self, start_date: Optional[str] = None, end_date: Optional[str] = None, 
+                  include_related: bool = False) -> List[Dict]:
         """
         Obtiene datos de ventas
         
         Args:
             start_date: Fecha de inicio en formato YYYY-MM-DD
             end_date: Fecha de fin en formato YYYY-MM-DD
+            include_related: Si es True, incluye items.product.productCategory en la respuesta
         
         Returns:
-            Lista de ventas
+            Lista de ventas (con datos incluidos si include_related=True)
         """
         params = {}
         
@@ -169,6 +171,10 @@ class FudoAPIClient:
             end_datetime = f"{end_date}T23:59:59Z"
             params["filter[createdAt]"] = f"lte.{end_datetime}"
         
+        # Incluir relaciones si se solicita
+        if include_related:
+            params["include"] = "items.product.productCategory"
+        
         # Configurar paginación (máximo 500 por página)
         params["page[size]"] = "500"
         params["page[number]"] = "1"
@@ -184,6 +190,18 @@ class FudoAPIClient:
                     # Si es un objeto con 'data'
                     if "data" in response:
                         sales = response["data"]
+                        # Si hay datos incluidos (included), agregarlos al contexto
+                        if "included" in response and include_related:
+                            # Guardar los datos incluidos para uso posterior
+                            if not hasattr(self, '_included_data'):
+                                self._included_data = {}
+                            # Organizar los datos incluidos por tipo e ID
+                            for included_item in response["included"]:
+                                item_type = included_item.get("type", "")
+                                item_id = included_item.get("id", "")
+                                if item_type and item_id:
+                                    key = f"{item_type}:{item_id}"
+                                    self._included_data[key] = included_item
                     # Si es un objeto con 'sales'
                     elif "sales" in response:
                         sales = response["sales"]
@@ -226,15 +244,322 @@ class FudoAPIClient:
             print("   Usando datos de ejemplo para desarrollo...")
             return self._get_sample_data(start_date, end_date)
     
-    def get_sales_by_date_range(self, days: int = 30) -> List[Dict]:
+    def get_sales_by_date_range(self, days: int = 30, include_related: bool = False) -> List[Dict]:
         """Obtiene ventas de los últimos N días"""
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
         return self.get_sales(
             start_date.strftime("%Y-%m-%d"),
-            end_date.strftime("%Y-%m-%d")
+            end_date.strftime("%Y-%m-%d"),
+            include_related=include_related
         )
+    
+    def get_items_by_ids(self, item_ids: List[str]) -> List[Dict]:
+        """
+        Obtiene items por sus IDs
+        
+        Args:
+            item_ids: Lista de IDs de items
+        
+        Returns:
+            Lista de items
+        """
+        if not item_ids:
+            return []
+        
+        all_items = []
+        
+        # Dividir en lotes más pequeños para evitar URLs muy largas
+        # Intentar con lotes más pequeños primero
+        batch_size = 50
+        for i in range(0, len(item_ids), batch_size):
+            batch_ids = item_ids[i:i + batch_size]
+            
+            # Intentar diferentes formatos de filtro
+            # Formato 1: filter[id]=in.(id1,id2,id3,...)
+            ids_str = ','.join(batch_ids)
+            
+            # Intentar con formato más simple primero
+            params = {
+                "filter[id]": f"in.{ids_str}",
+                "page[size]": "500",
+                "page[number]": "1"
+            }
+            
+            try:
+                while True:
+                    response = self._make_request("items", params=params)
+                    
+                    # Extraer items de la respuesta
+                    if isinstance(response, dict):
+                        if "data" in response:
+                            items = response["data"]
+                        elif "items" in response:
+                            items = response["items"]
+                        else:
+                            items = [v for v in response.values() if isinstance(v, list)]
+                            items = items[0] if items else []
+                    elif isinstance(response, list):
+                        items = response
+                    else:
+                        items = []
+                    
+                    if not items:
+                        break
+                    
+                    all_items.extend(items)
+                    
+                    # Si recibimos menos de 500 items, hemos llegado al final
+                    if len(items) < 500:
+                        break
+                    
+                    # Página siguiente
+                    params["page[number]"] = str(int(params["page[number]"]) + 1)
+                    
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e)
+                if "404" in error_msg:
+                    print(f"⚠️ Endpoint 'items' no encontrado. Verifica que la API tenga este endpoint.")
+                elif "400" in error_msg:
+                    # Intentar con formato alternativo
+                    try:
+                        # Formato alternativo: múltiples parámetros filter[id]
+                        params_alt = {
+                            "page[size]": "500",
+                            "page[number]": "1"
+                        }
+                        # Agregar cada ID como parámetro separado
+                        for idx, item_id in enumerate(batch_ids):
+                            params_alt[f"filter[id][{idx}]"] = item_id
+                        
+                        response = self._make_request("items", params=params_alt)
+                        # Procesar respuesta...
+                        if isinstance(response, dict):
+                            if "data" in response:
+                                items = response["data"]
+                            elif "items" in response:
+                                items = response["items"]
+                            else:
+                                items = [v for v in response.values() if isinstance(v, list)]
+                                items = items[0] if items else []
+                        elif isinstance(response, list):
+                            items = response
+                        else:
+                            items = []
+                        
+                        if items:
+                            all_items.extend(items)
+                            continue
+                    except:
+                        pass
+                    
+                    # Si el formato alternativo falla, intentar hacer peticiones individuales
+                    print(f"⚠️ Error 400 con filtro múltiple. Intentando peticiones individuales para {len(batch_ids)} items...")
+                    for item_id in batch_ids:
+                        try:
+                            params_single = {
+                                "filter[id]": f"eq.{item_id}",
+                                "page[size]": "1",
+                                "page[number]": "1"
+                            }
+                            response = self._make_request("items", params=params_single)
+                            if isinstance(response, dict):
+                                if "data" in response:
+                                    items = response["data"]
+                                elif "items" in response:
+                                    items = response["items"]
+                                else:
+                                    items = [v for v in response.values() if isinstance(v, list)]
+                                    items = items[0] if items else []
+                            elif isinstance(response, list):
+                                items = response
+                            else:
+                                items = []
+                            
+                            if items:
+                                all_items.extend(items)
+                        except:
+                            continue
+                else:
+                    print(f"⚠️ Error al obtener items: {error_msg}")
+                continue
+        
+        return all_items
+    
+    def get_products_by_ids(self, product_ids: List[str]) -> List[Dict]:
+        """
+        Obtiene products por sus IDs
+        
+        Args:
+            product_ids: Lista de IDs de products
+        
+        Returns:
+            Lista de products
+        """
+        if not product_ids:
+            return []
+        
+        all_products = []
+        
+        # Dividir en lotes más pequeños
+        batch_size = 50
+        for i in range(0, len(product_ids), batch_size):
+            batch_ids = product_ids[i:i + batch_size]
+            
+            ids_str = ','.join(batch_ids)
+            params = {
+                "filter[id]": f"in.{ids_str}",
+                "page[size]": "500",
+                "page[number]": "1"
+            }
+            
+            try:
+                while True:
+                    response = self._make_request("products", params=params)
+                    
+                    # Extraer products de la respuesta
+                    if isinstance(response, dict):
+                        if "data" in response:
+                            products = response["data"]
+                        elif "products" in response:
+                            products = response["products"]
+                        else:
+                            products = [v for v in response.values() if isinstance(v, list)]
+                            products = products[0] if products else []
+                    elif isinstance(response, list):
+                        products = response
+                    else:
+                        products = []
+                    
+                    if not products:
+                        break
+                    
+                    all_products.extend(products)
+                    
+                    if len(products) < 500:
+                        break
+                    
+                    params["page[number]"] = str(int(params["page[number]"]) + 1)
+                    
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e)
+                if "400" in error_msg:
+                    # Intentar peticiones individuales
+                    for product_id in batch_ids:
+                        try:
+                            params_single = {"filter[id]": f"eq.{product_id}", "page[size]": "1", "page[number]": "1"}
+                            response = self._make_request("products", params=params_single)
+                            if isinstance(response, dict):
+                                if "data" in response:
+                                    products = response["data"]
+                                elif "products" in response:
+                                    products = response["products"]
+                                else:
+                                    products = [v for v in response.values() if isinstance(v, list)]
+                                    products = products[0] if products else []
+                            elif isinstance(response, list):
+                                products = response
+                            else:
+                                products = []
+                            if products:
+                                all_products.extend(products)
+                        except:
+                            continue
+                else:
+                    print(f"⚠️ Error al obtener products: {error_msg}")
+                continue
+        
+        return all_products
+    
+    def get_product_categories_by_ids(self, category_ids: List[str]) -> List[Dict]:
+        """
+        Obtiene product categories por sus IDs
+        
+        Args:
+            category_ids: Lista de IDs de product categories
+        
+        Returns:
+            Lista de product categories
+        """
+        if not category_ids:
+            return []
+        
+        all_categories = []
+        
+        # Dividir en lotes más pequeños
+        batch_size = 50
+        for i in range(0, len(category_ids), batch_size):
+            batch_ids = category_ids[i:i + batch_size]
+            
+            ids_str = ','.join(batch_ids)
+            params = {
+                "filter[id]": f"in.{ids_str}",
+                "page[size]": "500",
+                "page[number]": "1"
+            }
+            
+            try:
+                while True:
+                    response = self._make_request("product-categories", params=params)
+                    
+                    # Extraer categories de la respuesta
+                    if isinstance(response, dict):
+                        if "data" in response:
+                            categories = response["data"]
+                        elif "productCategories" in response:
+                            categories = response["productCategories"]
+                        elif "categories" in response:
+                            categories = response["categories"]
+                        else:
+                            categories = [v for v in response.values() if isinstance(v, list)]
+                            categories = categories[0] if categories else []
+                    elif isinstance(response, list):
+                        categories = response
+                    else:
+                        categories = []
+                    
+                    if not categories:
+                        break
+                    
+                    all_categories.extend(categories)
+                    
+                    if len(categories) < 500:
+                        break
+                    
+                    params["page[number]"] = str(int(params["page[number]"]) + 1)
+                    
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e)
+                if "400" in error_msg:
+                    # Intentar peticiones individuales
+                    for category_id in batch_ids:
+                        try:
+                            params_single = {"filter[id]": f"eq.{category_id}", "page[size]": "1", "page[number]": "1"}
+                            response = self._make_request("product-categories", params=params_single)
+                            if isinstance(response, dict):
+                                if "data" in response:
+                                    categories = response["data"]
+                                elif "productCategories" in response:
+                                    categories = response["productCategories"]
+                                elif "categories" in response:
+                                    categories = response["categories"]
+                                else:
+                                    categories = [v for v in response.values() if isinstance(v, list)]
+                                    categories = categories[0] if categories else []
+                            elif isinstance(response, list):
+                                categories = response
+                            else:
+                                categories = []
+                            if categories:
+                                all_categories.extend(categories)
+                        except:
+                            continue
+                else:
+                    print(f"⚠️ Error al obtener product categories: {error_msg}")
+                continue
+        
+        return all_categories
     
     def _get_sample_data(self, start_date: Optional[str], end_date: Optional[str]) -> List[Dict]:
         """Genera datos de ejemplo para desarrollo/testing"""

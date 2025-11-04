@@ -292,18 +292,19 @@ view_type = st.sidebar.radio(
 
 # Inicializar cliente de API
 @st.cache_data(ttl=300)  # Cache por 5 minutos
-def load_sales_data(days: int):
+def load_sales_data(days: int, include_related: bool = False):
     """Carga datos de ventas desde la API"""
     client = FudoAPIClient()
-    sales_data = client.get_sales_by_date_range(days)
-    return sales_data
+    sales_data = client.get_sales_by_date_range(days, include_related=include_related)
+    return sales_data, client
 
 # Cargar datos
 with st.spinner("Cargando datos de ventas..."):
     try:
-        sales_data = load_sales_data(days_to_analyze)
+        # Cargar con include para obtener items.product.productCategory en una sola petición
+        sales_data, client = load_sales_data(days_to_analyze, include_related=True)
         # Usar zona horaria de Buenos Aires (GMT-3)
-        analytics = SalesAnalytics(sales_data, timezone="America/Argentina/Buenos_Aires")
+        analytics = SalesAnalytics(sales_data, timezone="America/Argentina/Buenos_Aires", api_client=client)
         
         if analytics.df.empty:
             st.error("No se encontraron datos de ventas para el período seleccionado.")
@@ -466,6 +467,41 @@ if view_type == "📈 Resumen General":
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.warning("No hay datos disponibles para mostrar")
+    
+    # Gráfico de ventas por categoría
+    st.subheader("🏷️ Ventas por Categoría de Productos")
+    category_data = analytics.get_sales_by_category(debug=True)
+    if not category_data.empty:
+        # Crear copia y convertir montos
+        category_display = category_data.copy()
+        category_display['total_sales'] = category_display['total_sales'].apply(format_amount)
+        
+        # Gráfico de barras horizontales para mejor visualización
+        fig = px.bar(
+            category_display,
+            x='total_sales',
+            y='category',
+            orientation='h',
+            title="Distribución de Ventas por Categoría",
+            labels={'total_sales': 'Ventas ($)', 'category': 'Categoría'},
+            color='total_sales',
+            color_continuous_scale='Plasma'
+        )
+        fig.update_layout(
+            yaxis={'categoryorder': 'total ascending'},
+            height=max(400, len(category_display) * 50)  # Altura dinámica según número de categorías
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Mostrar tabla con detalles
+        st.markdown("#### 📋 Detalles por Categoría")
+        category_table = category_display.copy()
+        category_table['total_sales'] = category_table['total_sales'].apply(lambda x: f"${x:,.2f}")
+        category_table['avg_sale'] = category_table['avg_sale'].apply(lambda x: f"${x:,.2f}")
+        category_table.columns = ['Categoría', 'Ventas Totales', 'N° Transacciones', 'Ticket Promedio']
+        st.dataframe(category_table, use_container_width=True, hide_index=True)
+    else:
+        st.info("ℹ️ No se encontraron datos de categorías en las ventas. Esto puede deberse a que la API no incluye información de categorías de productos en los datos de ventas.")
 
 elif view_type == "📅 Por Día":
     st.markdown("""

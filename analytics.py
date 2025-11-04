@@ -3,23 +3,31 @@ Funciones de análisis estratégico de ventas
 """
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import pytz
 
 
 class SalesAnalytics:
     """Clase para análisis de ventas"""
     
-    def __init__(self, sales_data: List[Dict], timezone: str = "America/Argentina/Buenos_Aires"):
+    def __init__(self, sales_data: List[Dict], timezone: str = "America/Argentina/Buenos_Aires", 
+                 api_client: Optional[object] = None):
         """
         Inicializa el analizador con datos de ventas
         
         Args:
             sales_data: Lista de diccionarios con datos de ventas
             timezone: Zona horaria para convertir las fechas (default: America/Argentina/Buenos_Aires - GMT-3)
+            api_client: Cliente de API de Fudo (opcional, necesario para obtener categorías)
         """
         self.df = pd.DataFrame(sales_data)
         self.timezone = pytz.timezone(timezone)
+        self.api_client = api_client
+        
+        # Cache para datos relacionados
+        self._items_cache = {}
+        self._products_cache = {}
+        self._categories_cache = {}
         
         # Normalizar y procesar datos
         if not self.df.empty:
@@ -328,4 +336,257 @@ class SalesAnalytics:
             return self.get_sales_by_hour()
         else:
             return pd.DataFrame()
+    
+    def get_sales_by_category(self, debug: bool = False) -> pd.DataFrame:
+        """
+        Obtiene ventas agrupadas por categoría de productos.
+        
+        Usa los datos incluidos (included) de la API cuando se usa include=items.product.productCategory
+        Esto evita múltiples peticiones y saturación del servidor.
+        
+        Estructura esperada (JSON:API format):
+        - Sale tiene relationships.items con referencias
+        - Los items están en included[] con type="items"
+        - Los products están en included[] con type="products"
+        - Los productCategories están en included[] con type="product-categories"
+        
+        Args:
+            debug: Si es True, imprime información de depuración
+        
+        Returns:
+            DataFrame con columns: category, total_sales, num_transactions, avg_sale
+        """
+        if self.df.empty:
+            return pd.DataFrame()
+        
+        # No necesitamos el api_client si los datos ya vienen incluidos
+        # pero lo mantenemos para compatibilidad
+        
+        if debug:
+            print(f"DEBUG: DataFrame tiene {len(self.df)} filas")
+        
+        # Verificar si tenemos datos incluidos del cliente de API
+        included_data = {}
+        if self.api_client and hasattr(self.api_client, '_included_data'):
+            included_data = self.api_client._included_data
+            if debug:
+                print(f"DEBUG: Datos incluidos disponibles: {len(included_data)} entidades")
+        
+        # Construir mapeos desde los datos incluidos
+        # included_data tiene formato: {"items:123": {...}, "products:456": {...}, "product-categories:789": {...}}
+        
+        # Mapeo de item_id -> product_id
+        item_product_map = {}
+        # Mapeo de product_id -> category_id
+        product_category_map = {}
+        # Mapeo de category_id -> category_name
+        category_name_map = {}
+        
+        # Extraer información de los datos incluidos
+        for key, entity in included_data.items():
+            # El formato puede ser "type:id" o necesitamos extraer type e id del entity mismo
+            entity_type = None
+            entity_id = None
+            
+            if ':' in key:
+                entity_type, entity_id = key.split(':', 1)
+            else:
+                # Si no está en el key, extraer del entity
+                if isinstance(entity, dict):
+                    entity_type = entity.get('type', '')
+                    entity_id = entity.get('id', '')
+            
+            if not entity_type or not entity_id:
+                continue
+            
+            # Normalizar entity_type (puede venir con mayúsculas)
+            entity_type = entity_type.lower()
+            
+            if entity_type in ['items', 'item']:
+                # Buscar product_id en el item
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    if 'product' in entity['relationships']:
+                        product_rel = entity['relationships']['product']
+                        if isinstance(product_rel, dict):
+                            if 'data' in product_rel:
+                                product_data = product_rel['data']
+                                if isinstance(product_data, dict):
+                                    product_id = product_data.get('id')
+                                    if product_id:
+                                        item_product_map[entity_id] = str(product_id)
+                                        if debug:
+                                            print(f"   DEBUG: Item {entity_id} -> Product {product_id}")
+                            elif 'id' in product_rel:
+                                item_product_map[entity_id] = str(product_rel['id'])
+                                if debug:
+                                    print(f"   DEBUG: Item {entity_id} -> Product {product_rel['id']}")
+            
+            elif entity_type in ['products', 'product']:
+                # Buscar productCategory_id en el product
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    rels = entity['relationships']
+                    cat_rel = None
+                    
+                    # Probar diferentes nombres posibles
+                    for key in ['productCategory', 'ProductCategory', 'product-category', 'category']:
+                        if key in rels:
+                            cat_rel = rels[key]
+                            break
+                    
+                    if cat_rel and isinstance(cat_rel, dict):
+                        if 'data' in cat_rel:
+                            cat_data = cat_rel['data']
+                            if isinstance(cat_data, dict):
+                                category_id = cat_data.get('id')
+                                if category_id:
+                                    product_category_map[entity_id] = str(category_id)
+                                    if debug:
+                                        print(f"   DEBUG: Product {entity_id} -> Category {category_id}")
+                        elif 'id' in cat_rel:
+                            product_category_map[entity_id] = str(cat_rel['id'])
+                            if debug:
+                                print(f"   DEBUG: Product {entity_id} -> Category {cat_rel['id']}")
+            
+            elif entity_type in ['product-categories', 'productcategories', 'productcategory']:
+                # Extraer nombre de la categoría
+                category_name = None
+                if 'attributes' in entity and isinstance(entity['attributes'], dict):
+                    attrs = entity['attributes']
+                    if 'name' in attrs:
+                        category_name = str(attrs['name']).strip()
+                    elif 'title' in attrs:
+                        category_name = str(attrs['title']).strip()
+                    elif 'label' in attrs:
+                        category_name = str(attrs['label']).strip()
+                elif 'name' in entity:
+                    category_name = str(entity['name']).strip()
+                
+                if category_name:
+                    category_name_map[entity_id] = category_name
+                    if debug:
+                        print(f"   DEBUG: Category {entity_id} -> Name: '{category_name}'")
+        
+        if debug:
+            print(f"DEBUG: Mapeos construidos:")
+            print(f"  items->products: {len(item_product_map)}")
+            print(f"  products->categories: {len(product_category_map)}")
+            print(f"  categories->names: {len(category_name_map)}")
+        
+        # Paso 2: Extraer items de cada venta y construir mapeo item->categoría
+        sale_items_map = {}  # Mapea sale_id -> lista de item_ids
+        item_category_map = {}  # Mapeo final item_id -> category_name
+        
+        for idx, row in self.df.iterrows():
+            sale_id = row.get('id', idx)
+            sale_items = []
+            
+            # Buscar items en relationships (JSON:API format)
+            items_refs = None
+            if 'relationships' in row and pd.notna(row['relationships']):
+                rels = row['relationships']
+                if isinstance(rels, dict) and 'items' in rels:
+                    items_data = rels['items']
+                    if isinstance(items_data, dict) and 'data' in items_data:
+                        items_refs = items_data['data']
+                    elif isinstance(items_data, list):
+                        items_refs = items_data
+            
+            if items_refs:
+                if not isinstance(items_refs, list):
+                    items_refs = [items_refs]
+                
+                for item_ref in items_refs:
+                    item_id = None
+                    if isinstance(item_ref, dict):
+                        item_id = item_ref.get('id')
+                    elif isinstance(item_ref, str):
+                        item_id = item_ref
+                    
+                    if item_id:
+                        item_id = str(item_id)
+                        sale_items.append(item_id)
+                        
+                        # Construir mapeo item->categoría usando los mapeos ya construidos
+                        if item_id in item_product_map:
+                            product_id = item_product_map[item_id]
+                            if product_id in product_category_map:
+                                category_id = product_category_map[product_id]
+                                if category_id in category_name_map:
+                                    item_category_map[item_id] = category_name_map[category_id]
+            
+            if sale_items:
+                sale_items_map[sale_id] = sale_items
+        
+        if debug:
+            print(f"DEBUG: Ventas con items: {len(sale_items_map)}")
+            print(f"DEBUG: Mapeos item->category: {len(item_category_map)}")
+        
+        # Paso 3: Agrupar ventas por categoría
+        category_sales = []
+        
+        for idx, row in self.df.iterrows():
+            sale_id = row.get('id', idx)
+            sale_amount = row.get('amount', 0)
+            
+            if sale_amount == 0:
+                continue
+            
+            # Obtener los item_ids de esta venta
+            sale_item_ids = sale_items_map.get(sale_id, [])
+            
+            if not sale_item_ids:
+                # Si no tiene items, agregar como "Sin categoría"
+                category_sales.append({
+                    'category': 'Sin categoría',
+                    'amount': sale_amount,
+                    'transaction_id': sale_id
+                })
+                continue
+            
+            # Obtener las categorías de los items de esta venta
+            categories_in_sale = []
+            for item_id in sale_item_ids:
+                if item_id in item_category_map:
+                    category_name = item_category_map[item_id]
+                    if category_name:
+                        categories_in_sale.append(category_name)
+            
+            if not categories_in_sale:
+                # Si no se encontraron categorías, usar "Sin categoría"
+                category_sales.append({
+                    'category': 'Sin categoría',
+                    'amount': sale_amount,
+                    'transaction_id': sale_id
+                })
+            else:
+                # Dividir el monto de la venta entre las categorías encontradas
+                # (si una venta tiene items de múltiples categorías)
+                amount_per_category = sale_amount / len(categories_in_sale)
+                
+                for category in categories_in_sale:
+                    category_sales.append({
+                        'category': category,
+                        'amount': amount_per_category,
+                        'transaction_id': sale_id
+                    })
+        
+        # Si no se encontraron categorías, retornar DataFrame vacío con estructura correcta
+        if not category_sales:
+            return pd.DataFrame(columns=['category', 'total_sales', 'num_transactions', 'avg_sale'])
+        
+        # Crear DataFrame y agrupar
+        cat_df = pd.DataFrame(category_sales)
+        
+        category_agg = cat_df.groupby('category').agg({
+            'amount': ['sum', 'mean', 'count'],
+            'transaction_id': 'nunique'
+        }).reset_index()
+        
+        category_agg.columns = ['category', 'total_sales', 'avg_sale', 'item_count', 'num_transactions']
+        
+        # Ordenar por total_sales descendente
+        category_agg = category_agg.sort_values('total_sales', ascending=False)
+        
+        # Retornar solo las columnas necesarias
+        return category_agg[['category', 'total_sales', 'num_transactions', 'avg_sale']]
 
