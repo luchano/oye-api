@@ -71,9 +71,13 @@ En la sección "Advanced settings", agrega las siguientes variables de entorno:
 FUDO_ENVIRONMENT=production
 FUDO_API_KEY=tu_api_key_aqui
 FUDO_API_SECRET=tu_api_secret_aqui
+DASHBOARD_PASSWORD=tu_contraseña_segura
 ```
 
-⚠️ **IMPORTANTE**: Reemplaza `tu_api_key_aqui` y `tu_api_secret_aqui` con tus credenciales reales de Fudo.
+⚠️ **IMPORTANTE**: 
+- Reemplaza `tu_api_key_aqui` y `tu_api_secret_aqui` con tus credenciales reales de Fudo.
+- Reemplaza `tu_contraseña_segura` con la contraseña que quieres usar para proteger el dashboard.
+- Si no configuras `DASHBOARD_PASSWORD`, el dashboard será accesible sin contraseña (modo desarrollo).
 
 ### 2.4. Desplegar
 

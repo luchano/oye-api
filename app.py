@@ -5,6 +5,8 @@ Utilizando la API de Fudo
 import streamlit as st
 import plotly.express as px
 import pandas as pd
+import os
+import hashlib
 
 from fudo_client import FudoAPIClient
 from analytics import SalesAnalytics
@@ -59,6 +61,60 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Función de autenticación
+def check_password():
+    """Verifica si el usuario ha ingresado la contraseña correcta"""
+    
+    # Obtener contraseña de variable de entorno
+    correct_password = os.getenv("DASHBOARD_PASSWORD", "")
+    
+    # Si no hay contraseña configurada, permitir acceso (modo desarrollo)
+    if not correct_password:
+        return True
+    
+    # Verificar si ya está autenticado
+    if "password_correct" in st.session_state and st.session_state["password_correct"]:
+        return True
+    
+    # Mostrar formulario de login
+    st.markdown("""
+    <div style='display: flex; justify-content: center; align-items: center; height: 80vh;'>
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    padding: 3rem; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                    max-width: 400px; width: 100%;'>
+            <h2 style='color: white; text-align: center; margin-bottom: 2rem;'>
+                🔐 Acceso Restringido
+            </h2>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    placeholder = st.empty()
+    
+    with placeholder.form("login"):
+        st.markdown("### Ingresa la contraseña")
+        password = st.text_input("Contraseña", type="password", label_visibility="collapsed")
+        submit = st.form_submit_button("Ingresar", use_container_width=True)
+        
+        if submit:
+            # Hash de la contraseña ingresada para comparación segura
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            stored_hash = hashlib.sha256(correct_password.encode()).hexdigest()
+            
+            if password_hash == stored_hash:
+                st.session_state["password_correct"] = True
+                placeholder.empty()
+                st.rerun()
+            else:
+                st.error("❌ Contraseña incorrecta. Intenta nuevamente.")
+                st.session_state["password_correct"] = False
+    
+    return False
+
+# Verificar autenticación antes de mostrar el contenido
+if not check_password():
+    st.stop()
 
 # CSS personalizado para diseño moderno
 st.markdown("""
@@ -204,6 +260,13 @@ st.sidebar.markdown("""
     <h2 style='color: white; margin: 0; font-size: 1.3rem;'>⚙️ Configuración</h2>
 </div>
 """, unsafe_allow_html=True)
+
+# Botón de cerrar sesión (si hay contraseña configurada)
+if os.getenv("DASHBOARD_PASSWORD"):
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🔓 Cerrar Sesión", use_container_width=True):
+        st.session_state["password_correct"] = False
+        st.rerun()
 
 # Opciones de fecha
 st.sidebar.markdown("**📅 Período de Análisis**")
