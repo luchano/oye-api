@@ -228,6 +228,187 @@ class SalesAnalytics:
         
         return hourly_sales[['hour', 'hour_order', 'display_hour', 'hour_label', 'total_sales', 'avg_sale', 'num_transactions']]
     
+    def get_sales_by_hour_and_category(self, top_n: int = 7) -> pd.DataFrame:
+        """
+        Obtiene ventas agrupadas por hora del día y categoría de productos.
+        Muestra las top N categorías más vendidas y agrupa el resto como "Otros".
+        
+        Args:
+            top_n: Número de categorías principales a mostrar (default: 7)
+        
+        Returns:
+            DataFrame con columns: hour, hour_order, hour_label, category, total_sales
+        """
+        if self.df.empty:
+            return pd.DataFrame()
+        
+        # Obtener ventas por categoría para determinar las top N
+        category_data = self.get_sales_by_category(debug=False)
+        
+        if category_data.empty:
+            return pd.DataFrame()
+        
+        # Obtener las top N categorías por total de ventas
+        top_categories = category_data.head(top_n)['category'].tolist()
+        
+        # Obtener datos incluidos del cliente de API
+        included_data = {}
+        if self.api_client and hasattr(self.api_client, '_included_data'):
+            included_data = self.api_client._included_data
+        
+        # Construir mapeos (igual que en get_sales_by_category)
+        item_product_map = {}
+        product_category_map = {}
+        category_name_map = {}
+        
+        for key, entity in included_data.items():
+            entity_type = None
+            entity_id = None
+            
+            if ':' in key:
+                entity_type, entity_id = key.split(':', 1)
+            else:
+                if isinstance(entity, dict):
+                    entity_type = entity.get('type', '')
+                    entity_id = entity.get('id', '')
+            
+            if not entity_type or not entity_id:
+                continue
+            
+            entity_type = entity_type.lower()
+            
+            if entity_type in ['items', 'item']:
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    if 'product' in entity['relationships']:
+                        product_rel = entity['relationships']['product']
+                        if isinstance(product_rel, dict):
+                            if 'data' in product_rel:
+                                product_data = product_rel['data']
+                                if isinstance(product_data, dict):
+                                    product_id = product_data.get('id')
+                                    if product_id:
+                                        item_product_map[entity_id] = str(product_id)
+            
+            elif entity_type in ['products', 'product']:
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    rels = entity['relationships']
+                    cat_rel = None
+                    for key_name in ['productCategory', 'ProductCategory', 'product-category', 'category']:
+                        if key_name in rels:
+                            cat_rel = rels[key_name]
+                            break
+                    
+                    if cat_rel and isinstance(cat_rel, dict):
+                        if 'data' in cat_rel:
+                            cat_data = cat_rel['data']
+                            if isinstance(cat_data, dict):
+                                category_id = cat_data.get('id')
+                                if category_id:
+                                    product_category_map[entity_id] = str(category_id)
+                        elif 'id' in cat_rel:
+                            product_category_map[entity_id] = str(cat_rel['id'])
+            
+            elif entity_type in ['product-categories', 'productcategories', 'productcategory']:
+                category_name = None
+                if 'attributes' in entity and isinstance(entity['attributes'], dict):
+                    attrs = entity['attributes']
+                    if 'name' in attrs:
+                        category_name = str(attrs['name']).strip()
+                
+                if category_name:
+                    category_name_map[entity_id] = category_name
+        
+        # Construir mapeo item_id -> category_name
+        item_category_map = {}
+        for item_id, product_id in item_product_map.items():
+            if product_id in product_category_map:
+                category_id = product_category_map[product_id]
+                if category_id in category_name_map:
+                    item_category_map[item_id] = category_name_map[category_id]
+        
+        # Crear lista para almacenar ventas por hora y categoría
+        hourly_category_sales = []
+        
+        # Iterar sobre cada venta
+        for idx, row in self.df.iterrows():
+            sale_id = row.get('id', idx)
+            sale_amount = row.get('amount', 0)
+            sale_hour = row.get('hour')
+            
+            if sale_amount == 0 or pd.isna(sale_hour):
+                continue
+            
+            # Obtener items de la venta
+            items_refs = None
+            if 'relationships' in row and pd.notna(row['relationships']):
+                rels = row['relationships']
+                if isinstance(rels, dict) and 'items' in rels:
+                    items_data = rels['items']
+                    if isinstance(items_data, dict) and 'data' in items_data:
+                        items_refs = items_data['data']
+                    elif isinstance(items_data, list):
+                        items_refs = items_data
+            
+            if not items_refs:
+                continue
+            
+            if not isinstance(items_refs, list):
+                items_refs = [items_refs]
+            
+            # Obtener categorías de los items
+            categories_in_sale = []
+            for item_ref in items_refs:
+                item_id = None
+                if isinstance(item_ref, dict):
+                    item_id = item_ref.get('id')
+                elif isinstance(item_ref, str):
+                    item_id = item_ref
+                
+                if item_id and str(item_id) in item_category_map:
+                    category_name = item_category_map[str(item_id)]
+                    if category_name:
+                        categories_in_sale.append(category_name)
+            
+            if not categories_in_sale:
+                categories_in_sale = ['Sin categoría']
+            
+            # Dividir el monto entre las categorías
+            amount_per_category = sale_amount / len(categories_in_sale)
+            
+            # Agregar venta para cada categoría
+            for category in categories_in_sale:
+                # Clasificar categoría: top N o "Otros"
+                display_category = category if category in top_categories else 'Otros'
+                
+                hourly_category_sales.append({
+                    'hour': int(sale_hour),
+                    'category': display_category,
+                    'amount': amount_per_category
+                })
+        
+        if not hourly_category_sales:
+            return pd.DataFrame()
+        
+        # Crear DataFrame y agrupar
+        df_hourly_cat = pd.DataFrame(hourly_category_sales)
+        
+        hourly_category_agg = df_hourly_cat.groupby(['hour', 'category']).agg({
+            'amount': 'sum'
+        }).reset_index()
+        
+        hourly_category_agg.columns = ['hour', 'category', 'total_sales']
+        
+        # Agregar columnas de ordenamiento de horas
+        hourly_category_agg['hour_order'] = hourly_category_agg['hour'].apply(
+            lambda x: x if x >= 12 else x + 24
+        )
+        hourly_category_agg['hour_label'] = hourly_category_agg['hour'].apply(lambda x: f"{x:02d}:00")
+        
+        # Ordenar por hora y categoría
+        hourly_category_agg = hourly_category_agg.sort_values(['hour_order', 'total_sales'], ascending=[True, False])
+        
+        return hourly_category_agg[['hour', 'hour_order', 'hour_label', 'category', 'total_sales']]
+    
     def get_sales_by_month(self) -> pd.DataFrame:
         """Obtiene ventas agrupadas por mes"""
         if self.df.empty:
@@ -242,6 +423,370 @@ class SalesAnalytics:
         monthly_sales = monthly_sales.sort_values('month')
         
         return monthly_sales[['month', 'month_str', 'total_sales', 'avg_sale', 'num_transactions']]
+    
+    def get_sales_by_day_and_category(self, top_n: int = 7) -> pd.DataFrame:
+        """
+        Obtiene ventas agrupadas por día de servicio y categoría de productos.
+        Muestra las top N categorías más vendidas y agrupa el resto como "Otros".
+        
+        Args:
+            top_n: Número de categorías principales a mostrar (default: 7)
+        
+        Returns:
+            DataFrame con columns: date, category, total_sales
+        """
+        if self.df.empty:
+            return pd.DataFrame()
+        
+        # Obtener ventas por categoría para determinar las top N
+        category_data = self.get_sales_by_category(debug=False)
+        
+        if category_data.empty:
+            return pd.DataFrame()
+        
+        # Obtener las top N categorías por total de ventas
+        top_categories = category_data.head(top_n)['category'].tolist()
+        
+        # Obtener datos incluidos del cliente de API
+        included_data = {}
+        if self.api_client and hasattr(self.api_client, '_included_data'):
+            included_data = self.api_client._included_data
+        
+        # Construir mapeos (igual que en get_sales_by_category)
+        item_product_map = {}
+        product_category_map = {}
+        category_name_map = {}
+        
+        for key, entity in included_data.items():
+            entity_type = None
+            entity_id = None
+            
+            if ':' in key:
+                entity_type, entity_id = key.split(':', 1)
+            else:
+                if isinstance(entity, dict):
+                    entity_type = entity.get('type', '')
+                    entity_id = entity.get('id', '')
+            
+            if not entity_type or not entity_id:
+                continue
+            
+            entity_type = entity_type.lower()
+            
+            if entity_type in ['items', 'item']:
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    if 'product' in entity['relationships']:
+                        product_rel = entity['relationships']['product']
+                        if isinstance(product_rel, dict):
+                            if 'data' in product_rel:
+                                product_data = product_rel['data']
+                                if isinstance(product_data, dict):
+                                    product_id = product_data.get('id')
+                                    if product_id:
+                                        item_product_map[entity_id] = str(product_id)
+            
+            elif entity_type in ['products', 'product']:
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    rels = entity['relationships']
+                    cat_rel = None
+                    for key_name in ['productCategory', 'ProductCategory', 'product-category', 'category']:
+                        if key_name in rels:
+                            cat_rel = rels[key_name]
+                            break
+                    
+                    if cat_rel and isinstance(cat_rel, dict):
+                        if 'data' in cat_rel:
+                            cat_data = cat_rel['data']
+                            if isinstance(cat_data, dict):
+                                category_id = cat_data.get('id')
+                                if category_id:
+                                    product_category_map[entity_id] = str(category_id)
+                        elif 'id' in cat_rel:
+                            product_category_map[entity_id] = str(cat_rel['id'])
+            
+            elif entity_type in ['product-categories', 'productcategories', 'productcategory']:
+                category_name = None
+                if 'attributes' in entity and isinstance(entity['attributes'], dict):
+                    attrs = entity['attributes']
+                    if 'name' in attrs:
+                        category_name = str(attrs['name']).strip()
+                
+                if category_name:
+                    category_name_map[entity_id] = category_name
+        
+        # Construir mapeo item_id -> category_name
+        item_category_map = {}
+        for item_id, product_id in item_product_map.items():
+            if product_id in product_category_map:
+                category_id = product_category_map[product_id]
+                if category_id in category_name_map:
+                    item_category_map[item_id] = category_name_map[category_id]
+        
+        # Crear lista para almacenar ventas por día y categoría
+        daily_category_sales = []
+        
+        # Iterar sobre cada venta
+        for idx, row in self.df.iterrows():
+            sale_id = row.get('id', idx)
+            sale_amount = row.get('amount', 0)
+            service_date = row.get('service_date')
+            
+            if sale_amount == 0 or pd.isna(service_date):
+                continue
+            
+            # Obtener items de la venta
+            items_refs = None
+            if 'relationships' in row and pd.notna(row['relationships']):
+                rels = row['relationships']
+                if isinstance(rels, dict) and 'items' in rels:
+                    items_data = rels['items']
+                    if isinstance(items_data, dict) and 'data' in items_data:
+                        items_refs = items_data['data']
+                    elif isinstance(items_data, list):
+                        items_refs = items_data
+            
+            if not items_refs:
+                continue
+            
+            if not isinstance(items_refs, list):
+                items_refs = [items_refs]
+            
+            # Obtener categorías de los items
+            categories_in_sale = []
+            for item_ref in items_refs:
+                item_id = None
+                if isinstance(item_ref, dict):
+                    item_id = item_ref.get('id')
+                elif isinstance(item_ref, str):
+                    item_id = item_ref
+                
+                if item_id and str(item_id) in item_category_map:
+                    category_name = item_category_map[str(item_id)]
+                    if category_name:
+                        categories_in_sale.append(category_name)
+            
+            if not categories_in_sale:
+                categories_in_sale = ['Sin categoría']
+            
+            # Dividir el monto entre las categorías
+            amount_per_category = sale_amount / len(categories_in_sale)
+            
+            # Agregar venta para cada categoría
+            for category in categories_in_sale:
+                # Clasificar categoría: top N o "Otros"
+                display_category = category if category in top_categories else 'Otros'
+                
+                # Convertir service_date a datetime si es necesario
+                if isinstance(service_date, pd.Timestamp):
+                    date_value = service_date
+                elif isinstance(service_date, str):
+                    date_value = pd.to_datetime(service_date)
+                else:
+                    date_value = pd.to_datetime(service_date)
+                
+                daily_category_sales.append({
+                    'date': date_value,
+                    'category': display_category,
+                    'amount': amount_per_category
+                })
+        
+        if not daily_category_sales:
+            return pd.DataFrame()
+        
+        # Crear DataFrame y agrupar
+        df_daily_cat = pd.DataFrame(daily_category_sales)
+        
+        daily_category_agg = df_daily_cat.groupby(['date', 'category']).agg({
+            'amount': 'sum'
+        }).reset_index()
+        
+        daily_category_agg.columns = ['date', 'category', 'total_sales']
+        
+        # Asegurar que date sea datetime
+        daily_category_agg['date'] = pd.to_datetime(daily_category_agg['date'])
+        
+        # Ordenar por fecha y categoría
+        daily_category_agg = daily_category_agg.sort_values(['date', 'total_sales'], ascending=[True, False])
+        
+        return daily_category_agg[['date', 'category', 'total_sales']]
+    
+    def get_sales_by_month_and_category(self, top_n: int = 7) -> pd.DataFrame:
+        """
+        Obtiene ventas agrupadas por mes y categoría de productos.
+        Muestra las top N categorías más vendidas y agrupa el resto como "Otros".
+        
+        Args:
+            top_n: Número de categorías principales a mostrar (default: 7)
+        
+        Returns:
+            DataFrame con columns: month, month_str, category, total_sales
+        """
+        if self.df.empty:
+            return pd.DataFrame()
+        
+        # Obtener ventas por categoría para determinar las top N
+        category_data = self.get_sales_by_category(debug=False)
+        
+        if category_data.empty:
+            return pd.DataFrame()
+        
+        # Obtener las top N categorías por total de ventas
+        top_categories = category_data.head(top_n)['category'].tolist()
+        
+        # Obtener datos incluidos del cliente de API
+        included_data = {}
+        if self.api_client and hasattr(self.api_client, '_included_data'):
+            included_data = self.api_client._included_data
+        
+        # Construir mapeos (igual que en get_sales_by_category)
+        item_product_map = {}
+        product_category_map = {}
+        category_name_map = {}
+        
+        for key, entity in included_data.items():
+            entity_type = None
+            entity_id = None
+            
+            if ':' in key:
+                entity_type, entity_id = key.split(':', 1)
+            else:
+                if isinstance(entity, dict):
+                    entity_type = entity.get('type', '')
+                    entity_id = entity.get('id', '')
+            
+            if not entity_type or not entity_id:
+                continue
+            
+            entity_type = entity_type.lower()
+            
+            if entity_type in ['items', 'item']:
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    if 'product' in entity['relationships']:
+                        product_rel = entity['relationships']['product']
+                        if isinstance(product_rel, dict):
+                            if 'data' in product_rel:
+                                product_data = product_rel['data']
+                                if isinstance(product_data, dict):
+                                    product_id = product_data.get('id')
+                                    if product_id:
+                                        item_product_map[entity_id] = str(product_id)
+            
+            elif entity_type in ['products', 'product']:
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    rels = entity['relationships']
+                    cat_rel = None
+                    for key_name in ['productCategory', 'ProductCategory', 'product-category', 'category']:
+                        if key_name in rels:
+                            cat_rel = rels[key_name]
+                            break
+                    
+                    if cat_rel and isinstance(cat_rel, dict):
+                        if 'data' in cat_rel:
+                            cat_data = cat_rel['data']
+                            if isinstance(cat_data, dict):
+                                category_id = cat_data.get('id')
+                                if category_id:
+                                    product_category_map[entity_id] = str(category_id)
+                        elif 'id' in cat_rel:
+                            product_category_map[entity_id] = str(cat_rel['id'])
+            
+            elif entity_type in ['product-categories', 'productcategories', 'productcategory']:
+                category_name = None
+                if 'attributes' in entity and isinstance(entity['attributes'], dict):
+                    attrs = entity['attributes']
+                    if 'name' in attrs:
+                        category_name = str(attrs['name']).strip()
+                
+                if category_name:
+                    category_name_map[entity_id] = category_name
+        
+        # Construir mapeo item_id -> category_name
+        item_category_map = {}
+        for item_id, product_id in item_product_map.items():
+            if product_id in product_category_map:
+                category_id = product_category_map[product_id]
+                if category_id in category_name_map:
+                    item_category_map[item_id] = category_name_map[category_id]
+        
+        # Crear lista para almacenar ventas por mes y categoría
+        monthly_category_sales = []
+        
+        # Iterar sobre cada venta
+        for idx, row in self.df.iterrows():
+            sale_id = row.get('id', idx)
+            sale_amount = row.get('amount', 0)
+            sale_month = row.get('month')
+            
+            if sale_amount == 0 or pd.isna(sale_month):
+                continue
+            
+            # Obtener items de la venta
+            items_refs = None
+            if 'relationships' in row and pd.notna(row['relationships']):
+                rels = row['relationships']
+                if isinstance(rels, dict) and 'items' in rels:
+                    items_data = rels['items']
+                    if isinstance(items_data, dict) and 'data' in items_data:
+                        items_refs = items_data['data']
+                    elif isinstance(items_data, list):
+                        items_refs = items_data
+            
+            if not items_refs:
+                continue
+            
+            if not isinstance(items_refs, list):
+                items_refs = [items_refs]
+            
+            # Obtener categorías de los items
+            categories_in_sale = []
+            for item_ref in items_refs:
+                item_id = None
+                if isinstance(item_ref, dict):
+                    item_id = item_ref.get('id')
+                elif isinstance(item_ref, str):
+                    item_id = item_ref
+                
+                if item_id and str(item_id) in item_category_map:
+                    category_name = item_category_map[str(item_id)]
+                    if category_name:
+                        categories_in_sale.append(category_name)
+            
+            if not categories_in_sale:
+                categories_in_sale = ['Sin categoría']
+            
+            # Dividir el monto entre las categorías
+            amount_per_category = sale_amount / len(categories_in_sale)
+            
+            # Agregar venta para cada categoría
+            for category in categories_in_sale:
+                # Clasificar categoría: top N o "Otros"
+                display_category = category if category in top_categories else 'Otros'
+                
+                monthly_category_sales.append({
+                    'month': sale_month,
+                    'category': display_category,
+                    'amount': amount_per_category
+                })
+        
+        if not monthly_category_sales:
+            return pd.DataFrame()
+        
+        # Crear DataFrame y agrupar
+        df_monthly_cat = pd.DataFrame(monthly_category_sales)
+        
+        monthly_category_agg = df_monthly_cat.groupby(['month', 'category']).agg({
+            'amount': 'sum'
+        }).reset_index()
+        
+        monthly_category_agg.columns = ['month', 'category', 'total_sales']
+        
+        # Agregar columna month_str
+        monthly_category_agg['month_str'] = monthly_category_agg['month'].astype(str)
+        
+        # Ordenar por mes y categoría
+        monthly_category_agg = monthly_category_agg.sort_values(['month', 'total_sales'], ascending=[True, False])
+        
+        return monthly_category_agg[['month', 'month_str', 'category', 'total_sales']]
     
     def get_sales_by_weekday(self) -> pd.DataFrame:
         """

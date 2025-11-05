@@ -67,10 +67,24 @@ def check_password():
     """Verifica si el usuario ha ingresado la contraseña correcta"""
     
     # Obtener contraseña de variable de entorno
-    correct_password = os.getenv("DASHBOARD_PASSWORD", "")
+    # Si la variable no existe, os.getenv retorna None
+    correct_password = os.getenv("DASHBOARD_PASSWORD")
     
-    # Si no hay contraseña configurada, permitir acceso (modo desarrollo)
-    if not correct_password:
+    # Si la variable no está definida o es None, permitir acceso
+    if correct_password is None:
+        # Limpiar el estado de sesión si existe
+        if "password_correct" in st.session_state:
+            del st.session_state["password_correct"]
+        return True
+    
+    # Convertir a string y limpiar
+    correct_password = str(correct_password).strip()
+    
+    # Si está vacía o comienza con # (comentario), permitir acceso
+    if not correct_password or correct_password.startswith("#"):
+        # Limpiar el estado de sesión si existe
+        if "password_correct" in st.session_state:
+            del st.session_state["password_correct"]
         return True
     
     # Verificar si ya está autenticado
@@ -113,6 +127,13 @@ def check_password():
     return False
 
 # Verificar autenticación antes de mostrar el contenido
+# Forzar limpieza del estado si la contraseña no está configurada
+dashboard_password = os.getenv("DASHBOARD_PASSWORD")
+if dashboard_password is None or (isinstance(dashboard_password, str) and dashboard_password.strip().startswith("#")):
+    # Si la contraseña está comentada o no existe, limpiar estado de sesión
+    if "password_correct" in st.session_state:
+        del st.session_state["password_correct"]
+
 if not check_password():
     st.stop()
 
@@ -519,6 +540,39 @@ elif view_type == "📅 Por Día":
     </div>
     """, unsafe_allow_html=True)
     
+    # Gráfico de ventas por día con desglose por categoría
+    st.subheader("📊 Ventas por Día Desglosadas por Categoría")
+    daily_category_data = analytics.get_sales_by_day_and_category(top_n=7)
+    if not daily_category_data.empty:
+        daily_category_display = daily_category_data.copy()
+        daily_category_display['total_sales'] = daily_category_display['total_sales'].apply(format_amount)
+        
+        # Crear gráfico de barras apiladas
+        fig = px.bar(
+            daily_category_display,
+            x='date',
+            y='total_sales',
+            color='category',
+            title="Ventas por Día Desglosadas por Categoría (Top 7 + Otros)",
+            labels={'total_sales': 'Ventas ($)', 'date': 'Día de Servicio', 'category': 'Categoría'},
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig.update_layout(
+            xaxis=dict(
+                type='date',
+                dtick=86400000.0,  # Un día en milisegundos
+                tickformat='%d/%m',
+                showgrid=True
+            ),
+            barmode='stack',
+            height=500
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay datos disponibles para mostrar el desglose por categoría")
+    
+    # Gráfico tradicional de ventas por día (sin desglose)
+    st.subheader("📈 Ventas Totales por Día")
     daily_data = analytics.get_sales_by_day()
     
     if not daily_data.empty:
@@ -595,6 +649,35 @@ elif view_type == "🕐 Por Hora":
     </div>
     """, unsafe_allow_html=True)
     
+    # Gráfico de ventas por hora con desglose por categoría
+    st.subheader("📊 Ventas por Hora Desglosadas por Categoría")
+    hourly_category_data = analytics.get_sales_by_hour_and_category(top_n=7)
+    if not hourly_category_data.empty:
+        hourly_category_display = hourly_category_data.copy()
+        hourly_category_display['total_sales'] = hourly_category_display['total_sales'].apply(format_amount)
+        
+        # Crear gráfico de barras apiladas
+        fig = px.bar(
+            hourly_category_display,
+            x='hour_label',
+            y='total_sales',
+            color='category',
+            title="Ventas por Hora Desglosadas por Categoría (Top 7 + Otros)",
+            labels={'total_sales': 'Ventas ($)', 'hour_label': 'Hora del Día', 'category': 'Categoría'},
+            category_orders={'hour_label': hourly_category_display['hour_label'].unique().tolist()},
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig.update_layout(
+            xaxis=dict(type='category'),
+            barmode='stack',
+            height=500
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay datos disponibles para mostrar el desglose por categoría")
+    
+    # Gráfico tradicional de ventas por hora (sin desglose)
+    st.subheader("📈 Ventas Totales por Hora")
     hourly_data = analytics.get_sales_by_hour()
     
     if not hourly_data.empty:
@@ -666,6 +749,34 @@ elif view_type == "📆 Por Mes":
     </div>
     """, unsafe_allow_html=True)
     
+    # Gráfico de ventas por mes con desglose por categoría
+    st.subheader("📊 Ventas por Mes Desglosadas por Categoría")
+    monthly_category_data = analytics.get_sales_by_month_and_category(top_n=7)
+    if not monthly_category_data.empty:
+        monthly_category_display = monthly_category_data.copy()
+        monthly_category_display['total_sales'] = monthly_category_display['total_sales'].apply(format_amount)
+        
+        # Crear gráfico de barras apiladas
+        fig = px.bar(
+            monthly_category_display,
+            x='month_str',
+            y='total_sales',
+            color='category',
+            title="Ventas por Mes Desglosadas por Categoría (Top 7 + Otros)",
+            labels={'total_sales': 'Ventas ($)', 'month_str': 'Mes', 'category': 'Categoría'},
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig.update_layout(
+            xaxis=dict(type='category'),
+            barmode='stack',
+            height=500
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay datos disponibles para mostrar el desglose por categoría")
+    
+    # Gráfico tradicional de ventas por mes (sin desglose)
+    st.subheader("📈 Ventas Totales por Mes")
     monthly_data = analytics.get_sales_by_month()
     
     if not monthly_data.empty:
