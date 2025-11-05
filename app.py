@@ -7,6 +7,7 @@ import plotly.express as px
 import pandas as pd
 import os
 import hashlib
+from datetime import datetime, timedelta
 
 from fudo_client import FudoAPIClient
 from analytics import SalesAnalytics
@@ -140,57 +141,57 @@ if not check_password():
 # CSS personalizado para diseño moderno
 st.markdown("""
 <style>
-    /* Estilos generales */
+    /* Estilos generales - más compacto */
     .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
+        padding-top: 1rem;
+        padding-bottom: 1rem;
     }
     
-    /* Header con gradiente */
+    /* Header con gradiente - más compacto */
     .main-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        padding: 1rem 1.5rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     }
     
     .main-header h1 {
         color: white;
-        font-size: 2.5rem;
+        font-size: 1.8rem;
         font-weight: 700;
         margin: 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
     }
     
     .main-header p {
         color: rgba(255,255,255,0.9);
-        font-size: 1.1rem;
-        margin-top: 0.5rem;
+        font-size: 0.9rem;
+        margin-top: 0.25rem;
     }
     
-    /* Métricas con estilo mejorado */
+    /* Métricas más compactas */
     [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
+        font-size: 1.5rem !important;
         font-weight: 700 !important;
         color: #667eea !important;
     }
     
     [data-testid="stMetricLabel"] {
-        font-size: 0.9rem !important;
+        font-size: 0.8rem !important;
         font-weight: 600 !important;
         color: #FAFAFA !important;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
     }
     
     [data-testid="stMetricDelta"] {
-        font-size: 0.85rem !important;
+        font-size: 0.75rem !important;
     }
     
-    /* Sidebar mejorado */
+    /* Sidebar más compacto */
     .css-1d391kg {
-        padding-top: 2rem;
+        padding-top: 1rem;
     }
     
     [data-testid="stSidebar"] {
@@ -202,20 +203,21 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Cards para gráficos */
+    /* Cards para gráficos - más compactas */
     .metric-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
+        padding: 1rem;
+        border-radius: 10px;
         color: white;
-        margin-bottom: 1rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        margin-bottom: 0.75rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
     
-    /* Botones y controles */
+    /* Botones y controles - más compactos */
     [data-testid="stRadio"] label {
         font-weight: 500;
-        padding: 0.5rem;
+        padding: 0.25rem;
+        font-size: 0.9rem;
     }
     
     /* Tablas */
@@ -253,16 +255,23 @@ st.markdown("""
         border-radius: 10px;
     }
     
-    /* Títulos de sección */
+    /* Títulos de sección - más compactos */
     h2 {
         color: #667eea !important;
         font-weight: 600 !important;
-        margin-top: 2rem !important;
+        margin-top: 1rem !important;
+        font-size: 1.3rem !important;
     }
     
     h3 {
         color: #764ba2 !important;
         font-weight: 500 !important;
+        font-size: 1.1rem !important;
+    }
+    
+    h4 {
+        font-size: 1rem !important;
+        margin-top: 0.75rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -271,14 +280,14 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>🍽️ Dashboard de Análisis Estratégico de Ventas</h1>
-    <p>Análisis en tiempo real de tu negocio gastronómico • Powered by Fudo API</p>
+    <p style='font-size: 0.9rem; margin-top: 0.25rem;'>Análisis en tiempo real • Powered by Fudo API</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Sidebar para configuración con estilo mejorado
+# Sidebar para configuración más compacto
 st.sidebar.markdown("""
-<div style='padding: 1rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin-bottom: 2rem;'>
-    <h2 style='color: white; margin: 0; font-size: 1.3rem;'>⚙️ Configuración</h2>
+<div style='padding: 0.75rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; margin-bottom: 1rem;'>
+    <h3 style='color: white; margin: 0; font-size: 1.1rem;'>⚙️ Configuración</h3>
 </div>
 """, unsafe_allow_html=True)
 
@@ -291,14 +300,79 @@ if os.getenv("DASHBOARD_PASSWORD"):
 
 # Opciones de fecha
 st.sidebar.markdown("**📅 Período de Análisis**")
-days_to_analyze = st.sidebar.slider(
-    "Días",
-    min_value=7,
-    max_value=365,
-    value=30,
-    step=1,
-    label_visibility="collapsed"
-)
+
+# Obtener fecha actual
+today = datetime.now().date()
+
+# Botones de preset compactos
+st.sidebar.markdown("**Presets rápidos:**")
+preset_cols = st.sidebar.columns(3)
+
+with preset_cols[0]:
+    if st.button("30d", use_container_width=True, help="Últimos 30 días"):
+        st.session_state['start_date'] = today - timedelta(days=30)
+        st.session_state['end_date'] = today
+        st.rerun()
+    if st.button("90d", use_container_width=True, help="Último trimestre"):
+        st.session_state['start_date'] = today - timedelta(days=90)
+        st.session_state['end_date'] = today
+        st.rerun()
+
+with preset_cols[1]:
+    if st.button("7d", use_container_width=True, help="Última semana"):
+        st.session_state['start_date'] = today - timedelta(days=7)
+        st.session_state['end_date'] = today
+        st.rerun()
+    if st.button("180d", use_container_width=True, help="Último semestre"):
+        st.session_state['start_date'] = today - timedelta(days=180)
+        st.session_state['end_date'] = today
+        st.rerun()
+
+with preset_cols[2]:
+    if st.button("Mes", use_container_width=True, help="Mes anterior"):
+        first_day_last_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        last_day_last_month = today.replace(day=1) - timedelta(days=1)
+        st.session_state['start_date'] = first_day_last_month
+        st.session_state['end_date'] = last_day_last_month
+        st.rerun()
+
+# Inicializar fechas en session_state si no existen
+if 'start_date' not in st.session_state:
+    st.session_state['start_date'] = today - timedelta(days=30)
+if 'end_date' not in st.session_state:
+    st.session_state['end_date'] = today
+
+# Selectores de fecha compactos
+st.sidebar.markdown("**Rango personalizado:**")
+date_cols = st.sidebar.columns(2)
+with date_cols[0]:
+    start_date = st.date_input(
+        "Inicio",
+        value=st.session_state['start_date'],
+        max_value=today,
+        help="Fecha de inicio",
+        label_visibility="visible"
+    )
+with date_cols[1]:
+    end_date = st.date_input(
+        "Fin",
+        value=st.session_state['end_date'],
+        max_value=today,
+        min_value=start_date,
+        help="Fecha de fin",
+        label_visibility="visible"
+    )
+
+# Actualizar session_state si las fechas cambiaron manualmente
+if start_date != st.session_state.get('start_date'):
+    st.session_state['start_date'] = start_date
+if end_date != st.session_state.get('end_date'):
+    st.session_state['end_date'] = end_date
+
+# Validar que la fecha fin sea mayor o igual a la fecha inicio
+if end_date < start_date:
+    st.sidebar.error("⚠️ La fecha fin debe ser mayor o igual a la fecha inicio")
+    st.stop()
 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
@@ -313,17 +387,25 @@ view_type = st.sidebar.radio(
 
 # Inicializar cliente de API
 @st.cache_data(ttl=300)  # Cache por 5 minutos
-def load_sales_data(days: int, include_related: bool = False):
+def load_sales_data(start_date: str, end_date: str, include_related: bool = False):
     """Carga datos de ventas desde la API"""
     client = FudoAPIClient()
-    sales_data = client.get_sales_by_date_range(days, include_related=include_related)
+    sales_data = client.get_sales(
+        start_date=start_date,
+        end_date=end_date,
+        include_related=include_related
+    )
     return sales_data, client
 
 # Cargar datos
 with st.spinner("Cargando datos de ventas..."):
     try:
+        # Convertir fechas a formato string para la API
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        end_date_str = end_date.strftime("%Y-%m-%d")
+        
         # Cargar con include para obtener items.product.productCategory en una sola petición
-        sales_data, client = load_sales_data(days_to_analyze, include_related=True)
+        sales_data, client = load_sales_data(start_date_str, end_date_str, include_related=True)
         # Usar zona horaria de Buenos Aires (GMT-3)
         analytics = SalesAnalytics(sales_data, timezone="America/Argentina/Buenos_Aires", api_client=client)
         
@@ -337,8 +419,8 @@ with st.spinner("Cargando datos de ventas..."):
 # Mostrar vista según selección
 if view_type == "📈 Resumen General":
     st.markdown("""
-    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 15px; margin-bottom: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-        <h2 style='color: white; margin: 0; font-size: 2rem;'>📈 Resumen General</h2>
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 10px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+        <h2 style='color: white; margin: 0; font-size: 1.5rem;'>📈 Resumen General</h2>
     </div>
     """, unsafe_allow_html=True)
     
@@ -353,20 +435,20 @@ if view_type == "📈 Resumen General":
         total_sales_compact = format_compact_amount(total_sales)
         avg_trans = format_amount(metrics.get('avg_transaction', 0))
         st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-            <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;'>💰 Ventas Totales</div>
-            <div style='color: white; font-size: 2rem; font-weight: 700; line-height: 1.2;' title='Total: ${total_sales:,.2f}'>{total_sales_compact}</div>
-            <div style='color: rgba(255,255,255,0.8); font-size: 0.85rem; margin-top: 0.5rem;'>Promedio: ${avg_trans:,.2f}</div>
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+            <div style='color: rgba(255,255,255,0.9); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem;'>💰 Ventas Totales</div>
+            <div style='color: white; font-size: 1.5rem; font-weight: 700; line-height: 1.2;' title='Total: ${total_sales:,.2f}'>{total_sales_compact}</div>
+            <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem; margin-top: 0.25rem;'>Promedio: ${avg_trans:,.2f}</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
         median_trans = format_amount(metrics.get('median_transaction', 0))
         st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-            <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;'>🛒 Transacciones</div>
-            <div style='color: white; font-size: 2rem; font-weight: 700;'>{f"{metrics.get('total_transactions', 0):,}"}</div>
-            <div style='color: rgba(255,255,255,0.8); font-size: 0.85rem; margin-top: 0.5rem;'>Mediana: ${median_trans:,.2f}</div>
+        <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+            <div style='color: rgba(255,255,255,0.9); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem;'>🛒 Transacciones</div>
+            <div style='color: white; font-size: 1.5rem; font-weight: 700;'>{f"{metrics.get('total_transactions', 0):,}"}</div>
+            <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem; margin-top: 0.25rem;'>Mediana: ${median_trans:,.2f}</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -375,17 +457,17 @@ if view_type == "📈 Resumen General":
         if best_day:
             best_day_sales = format_amount(best_day.get('sales', 0))
             st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-                <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;'>⭐ Mejor Día</div>
-                <div style='color: white; font-size: 1.8rem; font-weight: 700;'>{best_day.get('date', 'N/A')}</div>
-                <div style='color: rgba(255,255,255,0.8); font-size: 0.85rem; margin-top: 0.5rem;'>${best_day_sales:,.2f}</div>
+            <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+                <div style='color: rgba(255,255,255,0.9); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem;'>⭐ Mejor Día</div>
+                <div style='color: white; font-size: 1.2rem; font-weight: 700;'>{best_day.get('date', 'N/A')}</div>
+                <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem; margin-top: 0.25rem;'>${best_day_sales:,.2f}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
-            <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-                <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;'>⭐ Mejor Día</div>
-                <div style='color: white; font-size: 1.8rem; font-weight: 700;'>N/A</div>
+            <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+                <div style='color: rgba(255,255,255,0.9); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem;'>⭐ Mejor Día</div>
+                <div style='color: white; font-size: 1.2rem; font-weight: 700;'>N/A</div>
             </div>
             """, unsafe_allow_html=True)
     
@@ -394,17 +476,17 @@ if view_type == "📈 Resumen General":
         if best_hour:
             best_hour_sales = format_amount(best_hour.get('sales', 0))
             st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-                <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;'>🔥 Mejor Hora</div>
-                <div style='color: white; font-size: 1.8rem; font-weight: 700;'>{f"{best_hour.get('hour', 0):02d}:00"}</div>
-                <div style='color: rgba(255,255,255,0.8); font-size: 0.85rem; margin-top: 0.5rem;'>${best_hour_sales:,.2f}</div>
+            <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+                <div style='color: rgba(255,255,255,0.9); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem;'>🔥 Mejor Hora</div>
+                <div style='color: white; font-size: 1.2rem; font-weight: 700;'>{f"{best_hour.get('hour', 0):02d}:00"}</div>
+                <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem; margin-top: 0.25rem;'>${best_hour_sales:,.2f}</div>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
-            <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-                <div style='color: rgba(255,255,255,0.9); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;'>🔥 Mejor Hora</div>
-                <div style='color: white; font-size: 1.8rem; font-weight: 700;'>N/A</div>
+            <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+                <div style='color: rgba(255,255,255,0.9); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem;'>🔥 Mejor Hora</div>
+                <div style='color: white; font-size: 1.2rem; font-weight: 700;'>N/A</div>
             </div>
             """, unsafe_allow_html=True)
     
@@ -526,13 +608,13 @@ if view_type == "📈 Resumen General":
 
 elif view_type == "📅 Por Día":
     st.markdown("""
-    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 15px; margin-bottom: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-        <h2 style='color: white; margin: 0; font-size: 2rem;'>📅 Análisis de Ventas por Día de Servicio</h2>
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 10px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+        <h2 style='color: white; margin: 0; font-size: 1.5rem;'>📅 Análisis de Ventas por Día de Servicio</h2>
     </div>
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 1rem; border-radius: 10px; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
+    <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 1rem; border-radius: 10px; margin-bottom: 1rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
         <p style='color: white; margin: 0; font-size: 0.95rem;'>
             <strong>ℹ️ Día de Servicio:</strong> Incluye ventas desde las 12:00 del día hasta las 05:00 del día siguiente. 
             Todo se atribuye al día en que empezó el servicio (día de apertura).
@@ -644,8 +726,8 @@ elif view_type == "📅 Por Día":
 
 elif view_type == "🕐 Por Hora":
     st.markdown("""
-    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 15px; margin-bottom: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-        <h2 style='color: white; margin: 0; font-size: 2rem;'>🕐 Análisis de Ventas por Hora</h2>
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 10px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+        <h2 style='color: white; margin: 0; font-size: 1.5rem;'>🕐 Análisis de Ventas por Hora</h2>
     </div>
     """, unsafe_allow_html=True)
     
@@ -744,8 +826,8 @@ elif view_type == "🕐 Por Hora":
 
 elif view_type == "📆 Por Mes":
     st.markdown("""
-    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 15px; margin-bottom: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2);'>
-        <h2 style='color: white; margin: 0; font-size: 2rem;'>📆 Análisis de Ventas por Mes</h2>
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 10px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+        <h2 style='color: white; margin: 0; font-size: 1.5rem;'>📆 Análisis de Ventas por Mes</h2>
     </div>
     """, unsafe_allow_html=True)
     
