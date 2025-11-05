@@ -1198,4 +1198,189 @@ class SalesAnalytics:
         
         # Retornar las columnas necesarias incluyendo total_quantity
         return category_agg[['category', 'total_sales', 'num_transactions', 'avg_sale', 'total_quantity']]
+    
+    def get_top_products(self, top_n: int = 20, debug: bool = False) -> pd.DataFrame:
+        """
+        Obtiene los productos más vendidos basado en la cantidad total vendida.
+        
+        Usa los datos incluidos (included) de la API cuando se usa include=items.product.productCategory
+        Suma las quantities de todos los items de cada producto.
+        
+        Args:
+            top_n: Número máximo de productos a retornar (por defecto 20)
+            debug: Si es True, imprime información de depuración
+        
+        Returns:
+            DataFrame con columns: product_name, total_quantity, num_sales
+            - product_name: nombre del producto
+            - total_quantity: suma total de quantities vendidas
+            - num_sales: número de ventas en las que apareció este producto
+        """
+        if self.df.empty:
+            return pd.DataFrame()
+        
+        if debug:
+            print(f"DEBUG: DataFrame tiene {len(self.df)} filas")
+        
+        # Verificar si tenemos datos incluidos del cliente de API
+        included_data = {}
+        if self.api_client and hasattr(self.api_client, '_included_data'):
+            included_data = self.api_client._included_data
+            if debug:
+                print(f"DEBUG: Datos incluidos disponibles: {len(included_data)} entidades")
+        
+        # Construir mapeos desde los datos incluidos
+        # Mapeo de item_id -> product_id
+        item_product_map = {}
+        # Mapeo de product_id -> product_name
+        product_name_map = {}
+        
+        # Extraer información de los datos incluidos
+        for key, entity in included_data.items():
+            entity_type = None
+            entity_id = None
+            
+            if ':' in key:
+                entity_type, entity_id = key.split(':', 1)
+            else:
+                if isinstance(entity, dict):
+                    entity_type = entity.get('type', '')
+                    entity_id = entity.get('id', '')
+            
+            if not entity_type or not entity_id:
+                continue
+            
+            # Normalizar entity_type
+            entity_type = entity_type.lower()
+            
+            if entity_type in ['items', 'item']:
+                # Buscar product_id en el item
+                if 'relationships' in entity and isinstance(entity['relationships'], dict):
+                    if 'product' in entity['relationships']:
+                        product_rel = entity['relationships']['product']
+                        if isinstance(product_rel, dict):
+                            if 'data' in product_rel:
+                                product_data = product_rel['data']
+                                if isinstance(product_data, dict):
+                                    product_id = product_data.get('id')
+                                    if product_id:
+                                        item_product_map[entity_id] = str(product_id)
+                            elif 'id' in product_rel:
+                                item_product_map[entity_id] = str(product_rel['id'])
+            
+            elif entity_type in ['products', 'product']:
+                # Extraer nombre del producto
+                product_name = None
+                if 'attributes' in entity and isinstance(entity['attributes'], dict):
+                    attrs = entity['attributes']
+                    # Intentar diferentes nombres posibles para el nombre del producto
+                    for name_key in ['name', 'Name', 'title', 'Title', 'label', 'Label']:
+                        if name_key in attrs:
+                            product_name = str(attrs[name_key]).strip()
+                            break
+                elif 'name' in entity:
+                    product_name = str(entity['name']).strip()
+                elif 'title' in entity:
+                    product_name = str(entity['title']).strip()
+                
+                if product_name:
+                    product_name_map[entity_id] = product_name
+                    if debug:
+                        print(f"   DEBUG: Product {entity_id} -> Name: '{product_name}'")
+        
+        if debug:
+            print(f"DEBUG: Mapeos construidos:")
+            print(f"  items->products: {len(item_product_map)}")
+            print(f"  products->names: {len(product_name_map)}")
+        
+        # Extraer items de cada venta con sus quantities
+        product_sales = []  # Lista de diccionarios con product_name y quantity
+        
+        for idx, row in self.df.iterrows():
+            sale_id = row.get('id', idx)
+            
+            # Buscar items en relationships (JSON:API format)
+            items_refs = None
+            if 'relationships' in row and pd.notna(row['relationships']):
+                rels = row['relationships']
+                if isinstance(rels, dict) and 'items' in rels:
+                    items_data = rels['items']
+                    if isinstance(items_data, dict) and 'data' in items_data:
+                        items_refs = items_data['data']
+                    elif isinstance(items_data, list):
+                        items_refs = items_data
+            
+            if items_refs:
+                if not isinstance(items_refs, list):
+                    items_refs = [items_refs]
+                
+                for item_ref in items_refs:
+                    item_id = None
+                    if isinstance(item_ref, dict):
+                        item_id = item_ref.get('id')
+                    elif isinstance(item_ref, str):
+                        item_id = item_ref
+                    
+                    if item_id:
+                        item_id = str(item_id)
+                        
+                        # Obtener product_id y luego product_name
+                        product_name = None
+                        if item_id in item_product_map:
+                            product_id = item_product_map[item_id]
+                            if product_id in product_name_map:
+                                product_name = product_name_map[product_id]
+                        
+                        # Si no se encontró nombre, usar "Producto Desconocido"
+                        if not product_name:
+                            product_name = "Producto Desconocido"
+                        
+                        # Obtener quantity del item desde los datos incluidos
+                        item_key = f"items:{item_id}"
+                        quantity = 1  # Default
+                        if item_key in included_data:
+                            item_entity = included_data[item_key]
+                            # Buscar quantity en attributes
+                            if 'attributes' in item_entity and isinstance(item_entity['attributes'], dict):
+                                attrs = item_entity['attributes']
+                                for qty_key in ['quantity', 'Quantity', 'qty', 'Qty', 'amount', 'Amount']:
+                                    if qty_key in attrs:
+                                        try:
+                                            quantity = float(attrs[qty_key])
+                                            break
+                                        except (ValueError, TypeError):
+                                            pass
+                            elif 'quantity' in item_entity:
+                                try:
+                                    quantity = float(item_entity['quantity'])
+                                except (ValueError, TypeError):
+                                    quantity = 1
+                        
+                        product_sales.append({
+                            'product_name': product_name,
+                            'quantity': quantity,
+                            'sale_id': sale_id
+                        })
+        
+        if not product_sales:
+            return pd.DataFrame(columns=['product_name', 'total_quantity', 'num_sales'])
+        
+        # Crear DataFrame y agrupar por producto
+        products_df = pd.DataFrame(product_sales)
+        
+        products_agg = products_df.groupby('product_name').agg({
+            'quantity': 'sum',
+            'sale_id': 'nunique'
+        }).reset_index()
+        
+        products_agg.columns = ['product_name', 'total_quantity', 'num_sales']
+        
+        # Ordenar por total_quantity descendente
+        products_agg = products_agg.sort_values('total_quantity', ascending=False)
+        
+        # Limitar a top_n
+        if top_n > 0:
+            products_agg = products_agg.head(top_n)
+        
+        return products_agg
 

@@ -663,6 +663,39 @@ if view_type == "📈 Resumen General":
         st.dataframe(category_table, use_container_width=True, hide_index=True)
     else:
         st.info("ℹ️ No se encontraron datos de categorías en las ventas. Esto puede deberse a que la API no incluye información de categorías de productos en los datos de ventas.")
+    
+    # Gráfico de productos más vendidos
+    st.subheader("🏆 Productos Más Vendidos")
+    top_products_data = analytics.get_top_products(top_n=20, debug=False)
+    if not top_products_data.empty:
+        top_products_display = top_products_data.copy()
+        
+        # Gráfico de barras horizontales
+        fig_products = px.bar(
+            top_products_display,
+            x='total_quantity',
+            y='product_name',
+            orientation='h',
+            title="Top 20 Productos Más Vendidos",
+            labels={'total_quantity': 'Cantidad Vendida', 'product_name': 'Producto'},
+            color='total_quantity',
+            color_continuous_scale='Viridis'
+        )
+        fig_products.update_layout(
+            yaxis={'categoryorder': 'total ascending'},
+            height=max(600, len(top_products_display) * 40),  # Altura dinámica según número de productos
+            xaxis_title="Cantidad Total Vendida"
+        )
+        st.plotly_chart(fig_products, use_container_width=True)
+        
+        # Mostrar tabla con detalles
+        st.markdown("#### 📋 Detalles de Productos Más Vendidos")
+        products_table = top_products_display.copy()
+        products_table['total_quantity'] = products_table['total_quantity'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
+        products_table.columns = ['Producto', 'Cantidad Vendida', 'N° Ventas']
+        st.dataframe(products_table, use_container_width=True, hide_index=True)
+    else:
+        st.info("ℹ️ No se encontraron datos de productos en las ventas.")
 
 elif view_type == "📅 Por Día":
     st.markdown("""
