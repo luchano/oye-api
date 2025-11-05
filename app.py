@@ -428,7 +428,7 @@ if view_type == "📈 Resumen General":
     metrics = analytics.get_key_metrics()
     
     # Row 1: Métricas principales
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         total_sales = format_amount(metrics.get('total_sales', 0))
@@ -489,6 +489,73 @@ if view_type == "📈 Resumen General":
                 <div style='color: white; font-size: 1.2rem; font-weight: 700;'>N/A</div>
             </div>
             """, unsafe_allow_html=True)
+    
+    with col5:
+        total_people = metrics.get('total_people', 0)
+        avg_people = metrics.get('avg_people_per_transaction', 0)
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'>
+            <div style='color: rgba(255,255,255,0.9); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem;'>👥 Número de Pax</div>
+            <div style='color: white; font-size: 1.5rem; font-weight: 700;'>{total_people:,}</div>
+            <div style='color: rgba(255,255,255,0.8); font-size: 0.75rem; margin-top: 0.25rem;'>Promedio: {avg_people:,.1f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Gráfico de número de Pax por día
+    st.subheader("👥 Número de Pax por Día")
+    daily_pax_data = analytics.get_sales_by_day()
+    if not daily_pax_data.empty and 'total_people' in daily_pax_data.columns:
+        daily_pax_display = daily_pax_data.copy()
+        
+        # Gráfico de barras de número de Pax por día
+        fig_pax_daily = px.bar(
+            daily_pax_display,
+            x='date',
+            y='total_people',
+            title="Número de Personas Atendidas por Día de Servicio",
+            labels={'total_people': 'Número de Pax', 'date': 'Día de Servicio'},
+            color='total_people',
+            color_continuous_scale='Blues'
+        )
+        fig_pax_daily.update_layout(
+            xaxis=dict(
+                type='date',
+                tickmode='linear',
+                dtick=86400000.0,
+                tickformat='%d/%m',
+                showgrid=True
+            ),
+            height=500,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax_daily, use_container_width=True)
+        
+        # Gráfico de líneas para número de Pax
+        fig_pax_line = px.line(
+            daily_pax_display,
+            x='date',
+            y='total_people',
+            markers=True,
+            title="Evolución del Número de Personas por Día",
+            labels={'total_people': 'Número de Pax', 'date': 'Día de Servicio'},
+        )
+        fig_pax_line.update_traces(line_color='#43e97b', line_width=3)
+        fig_pax_line.update_layout(
+            xaxis=dict(
+                type='date',
+                tickmode='linear',
+                dtick=86400000.0,
+                tickformat='%d/%m',
+                showgrid=True
+            ),
+            height=400,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax_line, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay datos de número de personas disponibles")
     
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -624,7 +691,7 @@ elif view_type == "📅 Por Día":
     
     # Gráfico de ventas por día con desglose por categoría
     st.subheader("📊 Ventas por Día Desglosadas por Categoría")
-    daily_category_data = analytics.get_sales_by_day_and_category(top_n=7)
+    daily_category_data = analytics.get_sales_by_day_and_category(top_n=10)
     if not daily_category_data.empty:
         daily_category_display = daily_category_data.copy()
         daily_category_display['total_sales'] = daily_category_display['total_sales'].apply(format_amount)
@@ -635,7 +702,7 @@ elif view_type == "📅 Por Día":
             x='date',
             y='total_sales',
             color='category',
-            title="Ventas por Día Desglosadas por Categoría (Top 7 + Otros)",
+            title="Ventas por Día Desglosadas por Categoría (Top 10 + Otros)",
             labels={'total_sales': 'Ventas ($)', 'date': 'Día de Servicio', 'category': 'Categoría'},
             color_discrete_sequence=px.colors.qualitative.Set3
         )
@@ -652,6 +719,61 @@ elif view_type == "📅 Por Día":
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("ℹ️ No hay datos disponibles para mostrar el desglose por categoría")
+    
+    # Gráfico de número de Pax por día
+    st.subheader("👥 Número de Pax por Día")
+    daily_pax_data = analytics.get_sales_by_day()
+    
+    if not daily_pax_data.empty and 'total_people' in daily_pax_data.columns:
+        daily_pax_display = daily_pax_data.copy()
+        
+        # Gráfico de barras de número de Pax por día
+        fig_pax_daily = px.bar(
+            daily_pax_display,
+            x='date',
+            y='total_people',
+            title="Número de Personas Atendidas por Día de Servicio",
+            labels={'total_people': 'Número de Pax', 'date': 'Día de Servicio'},
+            color='total_people',
+            color_continuous_scale='Blues'
+        )
+        fig_pax_daily.update_layout(
+            xaxis=dict(
+                type='date',
+                tickmode='linear',
+                dtick=86400000.0,
+                tickformat='%d/%m',
+                showgrid=True
+            ),
+            height=500,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax_daily, use_container_width=True)
+        
+        # Gráfico de líneas para número de Pax
+        fig_pax_line = px.line(
+            daily_pax_display,
+            x='date',
+            y='total_people',
+            markers=True,
+            title="Evolución del Número de Personas por Día",
+            labels={'total_people': 'Número de Pax', 'date': 'Día de Servicio'},
+        )
+        fig_pax_line.update_traces(line_color='#43e97b', line_width=3)
+        fig_pax_line.update_layout(
+            xaxis=dict(
+                type='date',
+                tickmode='linear',
+                dtick=86400000.0,
+                tickformat='%d/%m',
+                showgrid=True
+            ),
+            height=400,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax_line, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay datos de número de personas disponibles")
     
     # Gráfico tradicional de ventas por día (sin desglose)
     st.subheader("📈 Ventas Totales por Día")
@@ -719,7 +841,11 @@ elif view_type == "📅 Por Día":
         daily_table['date'] = daily_table['date'].dt.strftime('%Y-%m-%d')
         daily_table['total_sales'] = daily_table['total_sales'].apply(lambda x: f"${x:,.2f}")
         daily_table['avg_sale'] = daily_table['avg_sale'].apply(lambda x: f"${x:,.2f}")
-        daily_table.columns = ['Día de Servicio (inicio)', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones']
+        if 'total_people' in daily_table.columns:
+            daily_table['total_people'] = daily_table['total_people'].apply(lambda x: f"{int(x):,}")
+            daily_table.columns = ['Día de Servicio (inicio)', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones', 'Número de Pax']
+        else:
+            daily_table.columns = ['Día de Servicio (inicio)', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones']
         st.dataframe(daily_table, use_container_width=True, hide_index=True)
     else:
         st.warning("No hay datos disponibles para mostrar")
@@ -733,7 +859,7 @@ elif view_type == "🕐 Por Hora":
     
     # Gráfico de ventas por hora con desglose por categoría
     st.subheader("📊 Ventas por Hora Desglosadas por Categoría")
-    hourly_category_data = analytics.get_sales_by_hour_and_category(top_n=7)
+    hourly_category_data = analytics.get_sales_by_hour_and_category(top_n=10)
     if not hourly_category_data.empty:
         hourly_category_display = hourly_category_data.copy()
         hourly_category_display['total_sales'] = hourly_category_display['total_sales'].apply(format_amount)
@@ -744,7 +870,7 @@ elif view_type == "🕐 Por Hora":
             x='hour_label',
             y='total_sales',
             color='category',
-            title="Ventas por Hora Desglosadas por Categoría (Top 7 + Otros)",
+            title="Ventas por Hora Desglosadas por Categoría (Top 10 + Otros)",
             labels={'total_sales': 'Ventas ($)', 'hour_label': 'Hora del Día', 'category': 'Categoría'},
             category_orders={'hour_label': hourly_category_display['hour_label'].unique().tolist()},
             color_discrete_sequence=px.colors.qualitative.Set3
@@ -758,9 +884,52 @@ elif view_type == "🕐 Por Hora":
     else:
         st.info("ℹ️ No hay datos disponibles para mostrar el desglose por categoría")
     
+    # Gráfico de número de Pax por hora
+    st.subheader("👥 Número de Pax por Hora")
+    hourly_data = analytics.get_sales_by_hour()
+    
+    if not hourly_data.empty and 'total_people' in hourly_data.columns:
+        hourly_pax_display = hourly_data.copy()
+        
+        # Gráfico de barras de número de Pax por hora
+        fig_pax = px.bar(
+            hourly_pax_display,
+            x='hour_label',
+            y='total_people',
+            title="Número de Personas Atendidas por Hora del Día (desde 12:00)",
+            labels={'total_people': 'Número de Pax', 'hour_label': 'Hora'},
+            color='total_people',
+            color_continuous_scale='Blues',
+            category_orders={'hour_label': hourly_pax_display['hour_label'].tolist()}
+        )
+        fig_pax.update_layout(
+            xaxis=dict(type='category'),
+            height=500,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax, use_container_width=True)
+        
+        # Gráfico de área para número de Pax
+        fig_pax_area = px.area(
+            hourly_pax_display,
+            x='hour_label',
+            y='total_people',
+            title="Distribución de Personas por Hora (Área) - desde 12:00",
+            labels={'total_people': 'Número de Pax', 'hour_label': 'Hora'},
+            category_orders={'hour_label': hourly_pax_display['hour_label'].tolist()}
+        )
+        fig_pax_area.update_traces(fill='tozeroy', line_color='#43e97b')
+        fig_pax_area.update_layout(
+            xaxis=dict(type='category'),
+            height=400,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax_area, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay datos de número de personas disponibles")
+    
     # Gráfico tradicional de ventas por hora (sin desglose)
     st.subheader("📈 Ventas Totales por Hora")
-    hourly_data = analytics.get_sales_by_hour()
     
     if not hourly_data.empty:
         # Crear copia y convertir montos
@@ -816,10 +985,19 @@ elif view_type == "🕐 Por Hora":
         # Tabla de datos (mantener orden desde 12:00)
         st.subheader("📋 Datos Detallados por Hora")
         hourly_table = hourly_display.copy()
-        hourly_table = hourly_table[['hour_label', 'total_sales', 'avg_sale', 'num_transactions']].copy()
+        
+        # Formatear valores antes de renombrar columnas
         hourly_table['total_sales'] = hourly_table['total_sales'].apply(lambda x: f"${x:,.2f}")
         hourly_table['avg_sale'] = hourly_table['avg_sale'].apply(lambda x: f"${x:,.2f}")
-        hourly_table.columns = ['Hora', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones']
+        
+        if 'total_people' in hourly_table.columns:
+            hourly_table['total_people'] = hourly_table['total_people'].apply(lambda x: f"{int(x):,}")
+            hourly_table = hourly_table[['hour_label', 'total_sales', 'avg_sale', 'num_transactions', 'total_people']].copy()
+            hourly_table.columns = ['Hora', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones', 'Número de Pax']
+        else:
+            hourly_table = hourly_table[['hour_label', 'total_sales', 'avg_sale', 'num_transactions']].copy()
+            hourly_table.columns = ['Hora', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones']
+        
         st.dataframe(hourly_table, use_container_width=True, hide_index=True)
     else:
         st.warning("No hay datos disponibles para mostrar")
@@ -833,7 +1011,7 @@ elif view_type == "📆 Por Mes":
     
     # Gráfico de ventas por mes con desglose por categoría
     st.subheader("📊 Ventas por Mes Desglosadas por Categoría")
-    monthly_category_data = analytics.get_sales_by_month_and_category(top_n=7)
+    monthly_category_data = analytics.get_sales_by_month_and_category(top_n=10)
     if not monthly_category_data.empty:
         monthly_category_display = monthly_category_data.copy()
         monthly_category_display['total_sales'] = monthly_category_display['total_sales'].apply(format_amount)
@@ -844,7 +1022,7 @@ elif view_type == "📆 Por Mes":
             x='month_str',
             y='total_sales',
             color='category',
-            title="Ventas por Mes Desglosadas por Categoría (Top 7 + Otros)",
+            title="Ventas por Mes Desglosadas por Categoría (Top 10 + Otros)",
             labels={'total_sales': 'Ventas ($)', 'month_str': 'Mes', 'category': 'Categoría'},
             color_discrete_sequence=px.colors.qualitative.Set3
         )
@@ -856,6 +1034,49 @@ elif view_type == "📆 Por Mes":
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("ℹ️ No hay datos disponibles para mostrar el desglose por categoría")
+    
+    # Gráfico de número de Pax por mes
+    st.subheader("👥 Número de Pax por Mes")
+    monthly_pax_data = analytics.get_sales_by_month()
+    
+    if not monthly_pax_data.empty and 'total_people' in monthly_pax_data.columns:
+        monthly_pax_display = monthly_pax_data.copy()
+        
+        # Gráfico de barras de número de Pax por mes
+        fig_pax_monthly = px.bar(
+            monthly_pax_display,
+            x='month_str',
+            y='total_people',
+            title="Número de Personas Atendidas por Mes",
+            labels={'total_people': 'Número de Pax', 'month_str': 'Mes'},
+            color='total_people',
+            color_continuous_scale='Blues'
+        )
+        fig_pax_monthly.update_layout(
+            xaxis=dict(type='category'),
+            height=500,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax_monthly, use_container_width=True)
+        
+        # Gráfico de líneas para número de Pax
+        fig_pax_monthly_line = px.line(
+            monthly_pax_display,
+            x='month_str',
+            y='total_people',
+            markers=True,
+            title="Evolución del Número de Personas por Mes",
+            labels={'total_people': 'Número de Pax', 'month_str': 'Mes'},
+        )
+        fig_pax_monthly_line.update_traces(line_color='#43e97b', line_width=3)
+        fig_pax_monthly_line.update_layout(
+            xaxis=dict(type='category'),
+            height=400,
+            yaxis_title="Número de Pax"
+        )
+        st.plotly_chart(fig_pax_monthly_line, use_container_width=True)
+    else:
+        st.info("ℹ️ No hay datos de número de personas disponibles")
     
     # Gráfico tradicional de ventas por mes (sin desglose)
     st.subheader("📈 Ventas Totales por Mes")
@@ -899,8 +1120,13 @@ elif view_type == "📆 Por Mes":
         monthly_table = monthly_display.copy()
         monthly_table['total_sales'] = monthly_table['total_sales'].apply(lambda x: f"${x:,.2f}")
         monthly_table['avg_sale'] = monthly_table['avg_sale'].apply(lambda x: f"${x:,.2f}")
-        monthly_table = monthly_table[['month_str', 'total_sales', 'avg_sale', 'num_transactions']]
-        monthly_table.columns = ['Mes', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones']
+        if 'total_people' in monthly_table.columns:
+            monthly_table['total_people'] = monthly_table['total_people'].apply(lambda x: f"{int(x):,}")
+            monthly_table = monthly_table[['month_str', 'total_sales', 'avg_sale', 'num_transactions', 'total_people']]
+            monthly_table.columns = ['Mes', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones', 'Número de Pax']
+        else:
+            monthly_table = monthly_table[['month_str', 'total_sales', 'avg_sale', 'num_transactions']]
+            monthly_table.columns = ['Mes', 'Ventas Totales', 'Ticket Promedio', 'N° Transacciones']
         st.dataframe(monthly_table, use_container_width=True, hide_index=True)
     else:
         st.warning("No hay datos disponibles para mostrar")

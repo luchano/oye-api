@@ -115,6 +115,20 @@ class SalesAnalytics:
             self.df['id'] = self.df['orderId']
         else:
             self.df['id'] = range(1, len(self.df) + 1)
+        
+        # Mapear campo de número de personas (people/pax)
+        people_column = None
+        for col in ['people', 'attributes_people', 'pax', 'guests', 'customers', 'numberOfPeople', 'num_people']:
+            if col in self.df.columns:
+                people_column = col
+                break
+        
+        if people_column:
+            # Convertir a numérico
+            self.df['people'] = pd.to_numeric(self.df[people_column], errors='coerce').fillna(0)
+        else:
+            # Si no hay columna de personas, usar 0
+            self.df['people'] = 0
     
     def _get_service_date(self, dt):
         """
@@ -163,10 +177,11 @@ class SalesAnalytics:
         # Agrupar por día de servicio en lugar de día calendario
         daily_sales = self.df.groupby('service_date').agg({
             'amount': ['sum', 'mean', 'count'],
+            'people': 'sum',
             'id': 'count'
         }).reset_index()
         
-        daily_sales.columns = ['date', 'total_sales', 'avg_sale', 'num_transactions', 'count']
+        daily_sales.columns = ['date', 'total_sales', 'avg_sale', 'num_transactions', 'total_people', 'count']
         # Convertir date a datetime manteniendo la zona horaria
         if not daily_sales.empty:
             # Si date viene como date object, convertir a datetime en la zona horaria correcta
@@ -190,10 +205,11 @@ class SalesAnalytics:
             daily_sales['total_sales'] = daily_sales['total_sales'].fillna(0)
             daily_sales['avg_sale'] = daily_sales['avg_sale'].fillna(0)
             daily_sales['num_transactions'] = daily_sales['num_transactions'].fillna(0)
+            daily_sales['total_people'] = daily_sales['total_people'].fillna(0)
             
             daily_sales = daily_sales.sort_values('date')
         
-        return daily_sales[['date', 'total_sales', 'avg_sale', 'num_transactions']]
+        return daily_sales[['date', 'total_sales', 'avg_sale', 'num_transactions', 'total_people']]
     
     def get_sales_by_hour(self) -> pd.DataFrame:
         """
@@ -205,10 +221,11 @@ class SalesAnalytics:
             return pd.DataFrame()
         
         hourly_sales = self.df.groupby('hour').agg({
-            'amount': ['sum', 'mean', 'count']
+            'amount': ['sum', 'mean', 'count'],
+            'people': 'sum'
         }).reset_index()
         
-        hourly_sales.columns = ['hour', 'total_sales', 'avg_sale', 'num_transactions']
+        hourly_sales.columns = ['hour', 'total_sales', 'avg_sale', 'num_transactions', 'total_people']
         
         # Reorganizar horas: comenzar desde las 12:00 (mediodía) hasta las 23:00,
         # y luego desde las 0:00 hasta las 11:00
@@ -226,9 +243,9 @@ class SalesAnalytics:
         # Crear etiqueta de hora para el gráfico (12:00, 13:00, ..., 23:00, 0:00, 1:00, ..., 11:00)
         hourly_sales['hour_label'] = hourly_sales['hour'].apply(lambda x: f"{x:02d}:00")
         
-        return hourly_sales[['hour', 'hour_order', 'display_hour', 'hour_label', 'total_sales', 'avg_sale', 'num_transactions']]
+        return hourly_sales[['hour', 'hour_order', 'display_hour', 'hour_label', 'total_sales', 'avg_sale', 'num_transactions', 'total_people']]
     
-    def get_sales_by_hour_and_category(self, top_n: int = 7) -> pd.DataFrame:
+    def get_sales_by_hour_and_category(self, top_n: int = 10) -> pd.DataFrame:
         """
         Obtiene ventas agrupadas por hora del día y categoría de productos.
         Muestra las top N categorías más vendidas y agrupa el resto como "Otros".
@@ -415,16 +432,17 @@ class SalesAnalytics:
             return pd.DataFrame()
         
         monthly_sales = self.df.groupby('month').agg({
-            'amount': ['sum', 'mean', 'count']
+            'amount': ['sum', 'mean', 'count'],
+            'people': 'sum'
         }).reset_index()
         
-        monthly_sales.columns = ['month', 'total_sales', 'avg_sale', 'num_transactions']
+        monthly_sales.columns = ['month', 'total_sales', 'avg_sale', 'num_transactions', 'total_people']
         monthly_sales['month_str'] = monthly_sales['month'].astype(str)
         monthly_sales = monthly_sales.sort_values('month')
         
-        return monthly_sales[['month', 'month_str', 'total_sales', 'avg_sale', 'num_transactions']]
+        return monthly_sales[['month', 'month_str', 'total_sales', 'avg_sale', 'num_transactions', 'total_people']]
     
-    def get_sales_by_day_and_category(self, top_n: int = 7) -> pd.DataFrame:
+    def get_sales_by_day_and_category(self, top_n: int = 10) -> pd.DataFrame:
         """
         Obtiene ventas agrupadas por día de servicio y categoría de productos.
         Muestra las top N categorías más vendidas y agrupa el resto como "Otros".
@@ -610,7 +628,7 @@ class SalesAnalytics:
         
         return daily_category_agg[['date', 'category', 'total_sales']]
     
-    def get_sales_by_month_and_category(self, top_n: int = 7) -> pd.DataFrame:
+    def get_sales_by_month_and_category(self, top_n: int = 10) -> pd.DataFrame:
         """
         Obtiene ventas agrupadas por mes y categoría de productos.
         Muestra las top N categorías más vendidas y agrupa el resto como "Otros".
@@ -858,11 +876,17 @@ class SalesAnalytics:
         else:
             best_hour_info = {}
         
+        # Estadísticas de número de personas (Pax)
+        total_people = self.df['people'].sum()
+        avg_people_per_transaction = self.df['people'].mean() if total_transactions > 0 else 0
+        
         return {
             'total_sales': float(total_sales),
             'total_transactions': int(total_transactions),
             'avg_transaction': float(avg_transaction),
             'median_transaction': float(median_transaction),
+            'total_people': int(total_people),
+            'avg_people_per_transaction': float(avg_people_per_transaction),
             'best_day': best_day_info,
             'worst_day': worst_day_info,
             'best_hour': best_hour_info
