@@ -531,29 +531,6 @@ if view_type == "📈 Resumen General":
             yaxis_title="Número de Pax"
         )
         st.plotly_chart(fig_pax_daily, use_container_width=True)
-        
-        # Gráfico de líneas para número de Pax
-        fig_pax_line = px.line(
-            daily_pax_display,
-            x='date',
-            y='total_people',
-            markers=True,
-            title="Evolución del Número de Personas por Día",
-            labels={'total_people': 'Número de Pax', 'date': 'Día de Servicio'},
-        )
-        fig_pax_line.update_traces(line_color='#43e97b', line_width=3)
-        fig_pax_line.update_layout(
-            xaxis=dict(
-                type='date',
-                tickmode='linear',
-                dtick=86400000.0,
-                tickformat='%d/%m',
-                showgrid=True
-            ),
-            height=400,
-            yaxis_title="Número de Pax"
-        )
-        st.plotly_chart(fig_pax_line, use_container_width=True)
     else:
         st.info("ℹ️ No hay datos de número de personas disponibles")
     
@@ -666,9 +643,23 @@ if view_type == "📈 Resumen General":
         # Mostrar tabla con detalles
         st.markdown("#### 📋 Detalles por Categoría")
         category_table = category_display.copy()
+        
+        # Seleccionar y formatear las columnas necesarias
+        display_columns = ['category', 'total_sales', 'num_transactions', 'avg_sale']
+        if 'total_quantity' in category_table.columns:
+            display_columns.append('total_quantity')
+        
+        category_table = category_table[display_columns].copy()
         category_table['total_sales'] = category_table['total_sales'].apply(lambda x: f"${x:,.2f}")
         category_table['avg_sale'] = category_table['avg_sale'].apply(lambda x: f"${x:,.2f}")
-        category_table.columns = ['Categoría', 'Ventas Totales', 'N° Transacciones', 'Ticket Promedio']
+        
+        # Formatear total_quantity como número entero si existe
+        if 'total_quantity' in category_table.columns:
+            category_table['total_quantity'] = category_table['total_quantity'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "0")
+            category_table.columns = ['Categoría', 'Ventas Totales', 'N° Transacciones', 'Ticket Promedio', 'Productos Vendidos']
+        else:
+            category_table.columns = ['Categoría', 'Ventas Totales', 'N° Transacciones', 'Ticket Promedio']
+        
         st.dataframe(category_table, use_container_width=True, hide_index=True)
     else:
         st.info("ℹ️ No se encontraron datos de categorías en las ventas. Esto puede deberse a que la API no incluye información de categorías de productos en los datos de ventas.")
@@ -749,29 +740,6 @@ elif view_type == "📅 Por Día":
             yaxis_title="Número de Pax"
         )
         st.plotly_chart(fig_pax_daily, use_container_width=True)
-        
-        # Gráfico de líneas para número de Pax
-        fig_pax_line = px.line(
-            daily_pax_display,
-            x='date',
-            y='total_people',
-            markers=True,
-            title="Evolución del Número de Personas por Día",
-            labels={'total_people': 'Número de Pax', 'date': 'Día de Servicio'},
-        )
-        fig_pax_line.update_traces(line_color='#43e97b', line_width=3)
-        fig_pax_line.update_layout(
-            xaxis=dict(
-                type='date',
-                tickmode='linear',
-                dtick=86400000.0,
-                tickformat='%d/%m',
-                showgrid=True
-            ),
-            height=400,
-            yaxis_title="Número de Pax"
-        )
-        st.plotly_chart(fig_pax_line, use_container_width=True)
     else:
         st.info("ℹ️ No hay datos de número de personas disponibles")
     

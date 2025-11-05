@@ -923,7 +923,8 @@ class SalesAnalytics:
             debug: Si es True, imprime información de depuración
         
         Returns:
-            DataFrame con columns: category, total_sales, num_transactions, avg_sale
+            DataFrame con columns: category, total_sales, num_transactions, avg_sale, total_quantity
+            - total_quantity: suma de las quantities de todos los items vendidos en cada categoría
         """
         if self.df.empty:
             return pd.DataFrame()
@@ -1044,6 +1045,7 @@ class SalesAnalytics:
         # Paso 2: Extraer items de cada venta y construir mapeo item->categoría
         sale_items_map = {}  # Mapea sale_id -> lista de item_ids
         item_category_map = {}  # Mapeo final item_id -> category_name
+        item_quantity_map = {}  # Mapeo item_id -> quantity
         
         for idx, row in self.df.iterrows():
             sale_id = row.get('id', idx)
@@ -1082,6 +1084,36 @@ class SalesAnalytics:
                                 category_id = product_category_map[product_id]
                                 if category_id in category_name_map:
                                     item_category_map[item_id] = category_name_map[category_id]
+                        
+                        # Obtener quantity del item desde los datos incluidos
+                        item_key = f"items:{item_id}"
+                        if item_key in included_data:
+                            item_entity = included_data[item_key]
+                            quantity = 0
+                            # Buscar quantity en attributes
+                            if 'attributes' in item_entity and isinstance(item_entity['attributes'], dict):
+                                attrs = item_entity['attributes']
+                                # Intentar diferentes nombres posibles para quantity
+                                for qty_key in ['quantity', 'Quantity', 'qty', 'Qty', 'amount', 'Amount']:
+                                    if qty_key in attrs:
+                                        try:
+                                            quantity = float(attrs[qty_key])
+                                            break
+                                        except (ValueError, TypeError):
+                                            pass
+                            # Si no se encontró en attributes, buscar directamente en el item
+                            elif 'quantity' in item_entity:
+                                try:
+                                    quantity = float(item_entity['quantity'])
+                                except (ValueError, TypeError):
+                                    quantity = 1  # Default a 1 si no se puede parsear
+                            else:
+                                quantity = 1  # Default a 1 si no se encuentra quantity
+                            
+                            item_quantity_map[item_id] = quantity
+                        else:
+                            # Si no está en included_data, usar 1 como default
+                            item_quantity_map[item_id] = 1
             
             if sale_items:
                 sale_items_map[sale_id] = sale_items
@@ -1108,54 +1140,62 @@ class SalesAnalytics:
                 category_sales.append({
                     'category': 'Sin categoría',
                     'amount': sale_amount,
+                    'quantity': 0,
                     'transaction_id': sale_id
                 })
                 continue
             
-            # Obtener las categorías de los items de esta venta
-            categories_in_sale = []
+            # Obtener las categorías de los items de esta venta con sus quantities
+            category_quantities = {}  # Mapeo category -> quantity total
             for item_id in sale_item_ids:
+                quantity = item_quantity_map.get(item_id, 1)
                 if item_id in item_category_map:
                     category_name = item_category_map[item_id]
                     if category_name:
-                        categories_in_sale.append(category_name)
+                        if category_name not in category_quantities:
+                            category_quantities[category_name] = 0
+                        category_quantities[category_name] += quantity
             
-            if not categories_in_sale:
+            if not category_quantities:
                 # Si no se encontraron categorías, usar "Sin categoría"
+                total_quantity = sum(item_quantity_map.get(item_id, 1) for item_id in sale_item_ids)
                 category_sales.append({
                     'category': 'Sin categoría',
                     'amount': sale_amount,
+                    'quantity': total_quantity,
                     'transaction_id': sale_id
                 })
             else:
                 # Dividir el monto de la venta entre las categorías encontradas
                 # (si una venta tiene items de múltiples categorías)
-                amount_per_category = sale_amount / len(categories_in_sale)
+                amount_per_category = sale_amount / len(category_quantities)
                 
-                for category in categories_in_sale:
+                for category, quantity in category_quantities.items():
                     category_sales.append({
                         'category': category,
                         'amount': amount_per_category,
+                        'quantity': quantity,
                         'transaction_id': sale_id
                     })
         
         # Si no se encontraron categorías, retornar DataFrame vacío con estructura correcta
         if not category_sales:
-            return pd.DataFrame(columns=['category', 'total_sales', 'num_transactions', 'avg_sale'])
+            return pd.DataFrame(columns=['category', 'total_sales', 'num_transactions', 'avg_sale', 'total_quantity'])
         
         # Crear DataFrame y agrupar
         cat_df = pd.DataFrame(category_sales)
         
         category_agg = cat_df.groupby('category').agg({
             'amount': ['sum', 'mean', 'count'],
+            'quantity': 'sum',
             'transaction_id': 'nunique'
         }).reset_index()
         
-        category_agg.columns = ['category', 'total_sales', 'avg_sale', 'item_count', 'num_transactions']
+        category_agg.columns = ['category', 'total_sales', 'avg_sale', 'item_count', 'total_quantity', 'num_transactions']
         
         # Ordenar por total_sales descendente
         category_agg = category_agg.sort_values('total_sales', ascending=False)
         
-        # Retornar solo las columnas necesarias
-        return category_agg[['category', 'total_sales', 'num_transactions', 'avg_sale']]
+        # Retornar las columnas necesarias incluyendo total_quantity
+        return category_agg[['category', 'total_sales', 'num_transactions', 'avg_sale', 'total_quantity']]
 
